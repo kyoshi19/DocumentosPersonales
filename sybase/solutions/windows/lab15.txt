@@ -1,0 +1,815 @@
+Module 15: Abstract Plans
+
+Lab 15-1: Abstract Plans - Solution
+Lab Setup
+There is a lab setup script for this lab, beginning in Task 2.
+You can start the lab over at any time by executing the UNIX shell script renew.sh and then executing the commands in the T-SQL script ap_setup.sql:
+
+isql -Usa -P -i ap_setup.sql
+
+Both scripts are located in your $HOME/ptquery15 directory.
+Objectives
+After completing this lab, you should be able to:
+* Understand the uses of abstract plans
+* Learn how to create and examine abstract plans and verify that they are being used 
+
+Description
+In this lab you will create, inspect, and modify statistics that will simulate query operations
+
+Task Outline 
+Task 1:  Understanding Abstract Plan Basics 
+Task 2:  Creating, Using, and Managing Abstract Plans 
+Task 3:  Examining Abstract Query Plans
+
+Detailed Instructions and Solutions
+Task 1: Understanding Abstract Plan Basics 
+Description
+
+
+Procedure
+1.	Which of the following problems would be good candidates for using the abstract plan feature of Adaptive Server Enterprise? Explain your answers.
+a.	After upgrading Adaptive Server to a new version, performance degrades for a few queries.
+The abstract plan feature may be a good solution to this problem.
+Of course, this depends on the true cause of the performance degradation. If the query plans generated for the slower-running queries are different, abstract plans may very well help. The performance problem could be a result of optimizer changes resulting in a change to how query plans are generated in the new version, new features introduced by the new version, or something unrelated to the new version.
+
+b.	You want to force particular access methods but do not want to rewrite the affected queries.
+The abstract plan feature is a good solution to this problem.
+In this case, the desired abstract plans can be generated and associated with the problem queries, and this will completely solve this problem in most cases.
+
+c.	A stored procedure that takes parameters normally executes in around 1 second. Occasionally, however, it requires 30 to 40 seconds to complete.
+The abstract plan feature may not be a good solution to this problem.
+This scenario typically results from a variety of issues, such as:
+* 	Unexpected activity may be occurring on the system.
+*    Multiple copies of a query plan may be residing in cache where some plans are less optimal than others for the given parameters. Procedure cache is managed in an MRU-LRU fashion, which can lead to a random pattern for query plan selection.
+	
+	If you execute the procedure using the with recompile option, you lose the potential benefit of using cached procedure plans.
+	If an abstract plan was generated that corresponded to the optimal plan, the randomness of the problem would be resolved. However, anytime the procedure is executed with the parameter values that required the different plan, the query plan described by the abstract plan would be suboptimal.
+	A better solution in this scenario would be the branching procedure plan strategy, as discussed in Module 11: “Stored Procedures”.
+
+d.	A packaged application runs unacceptably slowly due to poorly written queries.
+The abstract plan feature would not be a good solution to this problem.
+Abstract plans are useful in guiding the optimizer on how to execute a certain query. They are not designed to perform logical query rewrites, as would be needed here.
+
+2.	Given:
+* The pubtune_db database currently has no abstract plans stored in its sysqueryplans table.
+* You are connected to Adaptive Server as the sa and currently using the pubtune_db database. 
+For which of the following command sequences would Adaptive Server use abstract plans? Explain your answers.
+      Do not execute the commands in this exercise.
+a.	Sequence 1:
+
+set plan dump on
+select title from titles where title_id =  "T10"
+set plan dump off
+set plan load on
+select title from titles where title_id =  "T10"
+set plan load off
+This sequence will not result in an abstract plan being used. Although an abstract plan is generated for the query, it is stored in the default output group, ap_stdout. When association mode is enabled, by default it is enabled to the group, ap_stdin. Therefore, the newly created abstract plan will not be found by Adaptive Server.
+
+b.	Sequence 2:
+
+set plan load on
+select title from titles where title_id =  "T10"
+set plan dump on
+select title from titles where title_id =  "T10"
+set plan dump off
+set plan load off
+This sequence will not result in an abstract plan being used. In this sequence, the capture mode is not enabled when the query is first executed, so the first query has no effect on abstract plan processing. When the query is executed the second time, an abstract plan is generated and stored in the ap_stdout group. 
+
+c.	Sequence 3:
+
+set plan dump on
+select title from titles where title_id =  "T10"
+set plan load ap_stdin on
+select title from titles where title_id =  "T10"
+set plan dump off
+set plan load off
+This sequence will not result in an abstract plan being used. Although an abstract plan is generated for the query, it is stored in the default output group, ap_stdout. When the association mode is enabled, the group ap_stdin is specified. Therefore, the abstract plan will not be found by Adaptive Server.
+
+d.	Sequence 4:
+
+set plan dump ap_stdin on
+select title from titles where title_id =  "T10"
+set plan load on
+select title from titles where title_id =  "T10"
+set plan dump off
+set plan load off
+This sequence will result in an abstract plan being used. Even though the default input group, ap_stdin, is used to dump the abstract plan to, this is still valid. Then, because the association mode is enabled to the default group, ap_stdin, Adaptive Server will find and use the abstract plan for the second execution of the query.
+
+e.	Sequence 5:
+
+set plan dump on
+select title from titles where title_id =  "T10"
+set plan load ap_stdout on
+set plan dump off
+select title, total_sales from titles where title_id =  "T10"
+set plan load off
+This sequence will not result in an abstract plan being used. Even though the abstract plan groups are correctly specified (the abstract plan is generated and loaded into the ap_stdout group and then association mode is enabled against this group by default), the second query executed is not the same as the first query. Adaptive Server does not find a matching abstract plan for the second query
+
+3.	For each pair of queries and associated abstract plans that follows, indicate whether the abstract plan is a full or partial plan. Explain your answers.
+Given: all table and index names are valid.
+a.	Pair 1:
+Query 1:
+
+select title from titles_titlid where title_id =  "T10"
+Abstract Plan 1:
+
+( i_scan idx2 titles_titlid )
+( prop titles_titlid
+        ( parallel 1 )
+        ( prefetch 2 )
+        ( lru )
+)
+This is an example of a full abstract plan because the query accesses only one table and the abstract plan clearly indicates to use an index and the name of the index. The three properties for parallel access, prefetch, and replacement strategy are also identified.
+
+b.	Pair 2:
+Query 2:
+
+select title from titles_titlid where title_id =  "T10"
+Abstract Plan 2:
+
+( i_scan () titles_titlid )
+( prop titles_titlid
+        ( parallel 1 )
+        ( prefetch 2 )
+        ( lru )
+)
+This is an example of a partial abstract plan even though the query accesses only one table and the abstract plan clearly indicates to use an index and the three properties for parallel access, prefetch, and replacement strategy. However, the reason this is partial, and not full, is because the name of the index is not specified.
+
+c.	Pair 3:
+Query 3:
+
+select title from titles_titlid where title_id =  "T10"
+Abstract Plan 3:
+
+( t_scan titles_titlid )
+( prop titles_titlid
+        ( parallel 1 )
+        ( prefetch 2 )
+        ( lru )
+)
+This is an example of a full abstract plan because the query accesses only one table and the abstract plan clearly indicates to use a table scan. The three properties for parallel access, prefetch, and replacement strategy are also identified.
+
+d.	Pair 4:
+Query 4:
+
+select au_lname, au_fname from authors, titleauthor
+where authors.au_id = titleauthor.au_id
+and title_id =  "T10"
+
+Abstract Plan 4:
+
+( g_join
+        ( t_scan authors )
+        ( t_scan titleauthor ))
+( prop authors
+        ( parallel 1 )
+        ( prefetch 2 )
+        ( lru ))
+( prop titleauthor
+        ( parallel 1 )
+        ( prefetch 2 )
+        ( lru ))
+This is an example of a partial abstract plan because it does not specify whether to use the nested loop join or the merge join. Note the use of the generic g_join operator instead of a specific nl_g_join or m_g_join operator.
+
+Task 2: Creating, Using and Managing Abstract Plans 
+Description
+       
+
+   
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.Procedure
+
+1.	Perform the lab setup.
+a.	In Window B, change the directory to $HOME/ptquery15.
+
+cd $HOME/ptquery15
+
+b.	Execute the commands in the T-SQL script ap_setup.sql.
+
+isql -Usa -P -i ap_setup.sql
+
+P&T 15: creating tables for ABSTRACT PLANS lab exercises . . .
+.
+.
+.(output not shown)
+.
+.
+DONE!                                                                           
+
+2.	Examine abstract plan mode settings.
+a.	In Window A, connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Examine the server-level settings for the various abstract plan mode options by using sp_configure.
+
+sp_configure "abstract plan"
+go
+
+Msg 17411, Level 16, State 1:
+Server 'EME101_2K', Procedure 'sp_configure', Line 188:
+Configuration option is not unique.
+
+ Parameter Name                 Default     Memory Used Config Value
+         Run Value   Unit                 Type
+ ------------------------------ ----------- ----------- ------------
+         ----------- -------------------- ----------
+ abstract plan cache                      0           0           0
+                   0 switch               dynamic
+ abstract plan dump                       0           0           0
+                   0 switch               dynamic
+ abstract plan load                       0           0           0
+                   0 switch               dynamic
+ abstract plan replace                    0           0           0
+                   0 switch               dynamic
+
+(1 row affected)
+(return status = 1)                                                             
+
+
+
+There are four server-level options related to abstract plan modes:
+* abstract plan cache
+* abstract plan dump
+* abstract plan load
+* abstract plan replace
+Are any of the options active for abstract plan modes?
+No. All four options are in their default state, 0, disabled.
+
+c.	Verify that the pubtune_db database does not have any abstract plans stored by using sp_help_qpgroup.
+
+sp_help_qpgroup
+go
+
+Group     GID Plans 
+--------- --- ----- 
+ap_stdin    1     0 
+ap_stdout   2     0 
+Query plan groups in database 'pubtune_db'
+
+
+Does the pubtune_db database have any abstract plans stored?
+No.
+Does the pubtune_db database have any user-defined abstract plan groups?
+             No. The database has only the two default groups, ap_stdin and ap_stdout.
+3.	Create an abstract plan in the pubtune_db database.
+a.	Activate the session-level setting to capture abstract plans, without specifying a group name.
+
+set plan dump on
+go
+
+
+
+b.	Execute the following query:
+
+select count(*) from titles_idpr
+go
+
+ -----------
+        5000
+
+(1 row affected)
+
+c.	Turn off the session-level setting to capture abstract plans.
+
+set plan dump off
+go
+
+d.	Verify that the pubtune_db database now has an abstract plan stored by using sp_help_qpgroup.
+
+sp_help_qpgroup
+go
+
+
+Group     GID Plans 
+--------- --- ----- 
+ap_stdin    1     0 
+ap_stdout   2     1 
+Query plan groups in database 'pubtune_db' 
+
+
+
+How many plans are there?
+There is one plan.
+Which group is the plan in? Is this the expected group? Explain.
+The plan is in the ap_stdout group as expected because a group name was not specified when issuing set plan dump on. Therefore the plan was created in the default group, ap_stdout. 	
+
+4.	In Window B, try to use the newly created abstract plan.
+
+
+    Perform steps 4a through 4i in Window B.
+a.	In Window B, connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+
+b.	Activate the session-level setting to associate (use) abstract plans, without specifying a group name.
+
+set plan load on
+go
+
+c.	Activate the Adaptive Server showplan diagnostic command.
+
+set showplan on
+go
+
+d.	With the association and showplan settings active, execute the query for which the abstract plan was originally saved:
+
+select count(*) from titles_idpr
+go
+
+            
+----------- 
+5000        
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Index : idx2
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at index start.
+       |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+(1 row affected)
+
+
+Is there any indication from the showplan output that Adaptive Server used the abstract plan? Explain.
+No. When Adaptive Server uses an abstract plan, showplan output clearly makes mention of it.
+You enabled (set) abstract plan association so why was the abstract plan not used?
+Even though abstract plan association mode was enabled, by default the group is ap_stdin. When the abstract plan was created, by default it went to the group ap_stdout.	
+e.	Turn off the Adaptive Server showplan diagnostic command.
+
+set showplan off
+go
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION OFF.
+
+f.	Turn off the session-level setting to associate (use) abstract plans.
+
+set plan load off
+go
+
+
+
+
+You must disable the active association group before you can enable a different association group.
+
+g.	Enable the session-level setting to associate (use) abstract plans from the ap_stdout group.
+
+set plan load ap_stdout on
+go
+
+h.	Activate the Adaptive Server showplan diagnostic command.
+
+set showplan on
+go
+
+i.	With the association and showplan settings active, execute the query for which the abstract plan was originally saved:
+
+select count(*) from titles_idpr
+go
+
+            
+----------- 
+5000        
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using an Abstract Plan (ID : 1881054706).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Index : idx2
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at index start.
+       |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+
+Is there any indication from the showplan output that Adaptive Server used the abstract plan? Explain.
+Yes. When Adaptive Server uses an abstract plan, showplan output clearly makes mention of it as shown:
+
+Optimized using an Abstract Plan (ID : . . ).
+Write down the access method used by the abstract plan (table scan or index).
+The abstract plan indicates that an index is used.
+Write down the abstract plan ID. Your value may be different from the one shown in the solutions.
+       1881054706
+
+5.	In Window A, examine the abstract plan by using various stored procedures.
+a.	Examine the abstract plan by using sp_help_qplan and passing the ID from the preceding exercise as the parameter to the stored procedure.
+
+
+In Section 2, step 3c, you should have disabled abstract plan capture mode in Window A. Disable it now if you have not done so already:
+set plan dump off
+       go
+
+sp_help_qplan 1881054706
+go
+
+gid         hashkey     id          
+----------- ----------- ----------- 
+2           1712212244  1881054706
+
+query                                                                          
+------------------------------------------------------------------------------ 
+select count(*) from titles_idpr                                               
+
+
+query_plan                                                                     
+------------------------------------------------------------------------------ 
+( scalar_agg ( i_scan idx2 titles_idpr ) ) ( prop titles_idpr ( parallel 1 ...
+
+b.	Examine the abstract plan by using sp_find_qplan:
+
+sp_find_qplan "%titles_idpr%"
+go
+
+gid         id          text                                                                                                                                                                                                                                                            
+----------- ----------- --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+2           1881054706  select count(*) from titles_idpr                                                                                                                                                                                                                                
+2           1881054706  ( scalar_agg ( i_scan idx2 titles_idpr ) ) ( prop titles_idpr ( parallel 1 ) ( prefetch 2 ) ( lru ) )
+
+return status = 0)
+
+
+
+Is this an example of a full or partial abstract plan?
+This is an example of a full abstract plan because the query accesses only one table and the abstract plan clearly indicates to use an index and the name of the index. The three properties for parallel access, prefetch, and replacement strategy are also identified.
+Is the access method (table scan or index) displayed by the abstract plan consistent with the showplan output in step 4i?
+      Yes. Both the abstract plan and showplan output indicate that the titles_idpr table is accessed via the index idx2.
+6.	Create a second abstract plan that uses a table scan instead of the index for the same query.
+
+
+There are two ways to manually generate an abstract plan:
+• 	Use the create plan command (query will not be executed)
+or 
+• 	Attach the plan clause to the desired query 
+(the query will be executed)
+Make sure you use the quotation marks and parentheses
+correctly!
+a.	Continuing in Window A, enable the session-level setting to capture abstract plans into the ap_stdin group:
+
+set plan dump ap_stdin on
+go
+
+b.	For the query that you have been using in this section, manually generate an abstract plan that describes a table scan:
+
+create plan
+"select count(*) from titles_idpr"
+"( plan (t_scan titles_idpr) () )"
+go
+
+OR
+
+select count(*) from titles_idpr
+plan 
+"( plan (t_scan titles_idpr) () )"
+go
+
+ -----------
+        5000
+
+(1 row affected)
+
+c.	Disable the session-level setting to capture abstract plans.
+
+set plan dump off
+go
+
+d.	Verify that the pubtune_db database now has an abstract plan stored in the ap_stdin group by using sp_help_qpgroup.
+
+sp_help_qpgroup
+go
+
+Group     GID Plans 
+--------- --- ----- 
+ap_stdin    1     1 
+ap_stdout   2     1 
+Query plan groups in database 'pubtune_db'
+e.	Verify that the new abstract plan in the ap_stdin group uses a table scan instead of the index by using sp_find_qplan:
+
+sp_find_qplan "%titles_idpr%", "ap_stdin"
+go
+
+gid         id          text                                                                                                                                                                                                                                                            
+----------- ----------- --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+1           1897054763  select count(*) from titles_idpr                                                                                                                                                                                                                                
+1           1897054763  ( plan (t_scan titles_idpr) () )
+
+
+Write down the new abstract plan ID. Your value may be different from the one shown in the solutions.
+1897054763
+
+f.	Verify that the two abstract plans in the pubtune_db database use different query plans for the same query by using sp_cmp_qplans.
+
+
+Use the abstract plan ID values that you wrote down in section 2, steps 4i and 6e.
+
+sp_cmp_qplans 1881054706, 1897054763
+go
+
+The queries are the same.
+The query plans are different.
+
+
+7.	Verify that Adaptive Server uses the new abstract plan upon request.
+a.	Continuing in Window A, enable the session-level setting to associate (use) abstract plans from the ap_stdin group.
+
+set plan load ap_stdin on
+go
+
+OR (using default behavior)
+
+set plan load on
+go
+
+b.	Activate the Adaptive Server showplan diagnostic command.
+
+set showplan on
+go
+
+c.	Execute the query for which two abstract plans are now stored:
+
+select count(*) from titles_idpr
+go
+
+
+            
+----------- 
+5000        
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using an Abstract Plan (ID : 1897054763).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Did Adaptive Server use the new abstract plan (table scan) or the first abstract plan (index access) created in section 2, step 3? Explain.
+Adaptive Server did use the new abstract plan, as evidenced by the showplan output, which displays the new abstract plan ID, 389573395, and indicates Table Scan.
+What would be the sequence of commands for the sa, continuing in Window A, to use the index scan abstract plan instead of the table scan abstract plan?
+
+set showplan off
+go
+
+set plan load off
+go
+
+set plan load ap_stdout on
+go
+
+set showplan on
+go
+
+select count(*) from titles_idpr
+       go
+
+
+
+Task 3: Examining Abstract Query Plans
+Description
+In this task, you will create indexes, generate abstract query plans and practice using various queries to gather information about query plans that are stored in the sysqueryplans table.
+
+
+Procedure
+
+In the sysqueryplans table, the type column describes the row type:
+
+	10 – the source for the query
+	100 – the query plan
+1. Exit your ISQL session In Window A and log back in again to create the following indexes:
+
+exit
+
+isql -Usa -P -Dpubtune_db
+
+create unique index au_idx1 on authors(au_id)
+create index au_idx2 on authors(state)
+create index au_idx3 on authors(zipcode)
+
+2. Clean out the sysqueryplans table with the following command.
+
+sp_drop_all_qplans ap_stdout
+
+(return status = 0)
+
+3. Configure your ASE server to capture abstract plans.
+
+sp_configure “abstract plan dump”, 1
+
+
+
+ Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type
+ ------------------------------ ----------- ----------- ------------ ------------ -------------------- ----------
+ abstract plan dump                       0           0            1            1 switch               dynamic
+(1 row affected)
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Changing the value of 'abstract plan dump' does not increase the amount of memory Adaptive Server uses.
+(return status = 0)
+
+4. In Window B, exit from isql and cd to your $HOME/ ptquery15 directory. Use the file ap_query.sql by running it through isql as follows:
+
+exit
+
+cd $HOME/ptquery15
+
+isql –Usa –P –i ap_query.sql –o ap_query.out
+
+5. Using Window A, Configure your Adaptive Server to stop capturing abstract plans.
+
+sp_configure “abstract plan dump”, 0
+
+ Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type
+ ------------------------------ ----------- ----------- ------------ ------------ -------------------- ----------
+ abstract plan dump                       0           0            0            0 switch               dynamic
+(1 row affected)
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Changing the value of 'abstract plan dump' does not increase the amount of memory Adaptive Server uses.
+(return status = 0)
+
+6. Continuing in Window A, execute the following query to determine the number of rows in the sysqueryplans table. 
+
+
+select count(*) from sysqueryplans
+
+----------- 
+69
+
+
+What is the number?  It should be greater than 1
+      69.
+
+7. Execute the following query to determine how many query plans reference the authors table
+
+select count(*) from sysqueryplans
+where type = 10 and text like ‘%authors%’
+
+ -----------
+          30
+(1 row affected)
+
+8. How many query plans use the index au_idx1?  Define the query and obtain the answer.
+
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%au_idx1%’
+
+ -----------
+          17
+(1 row affected)
+
+
+
+9. How many query plans use the index au_idx2?  Define the query and obtain the answer.
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%au_idx2%’
+
+ -----------
+           7
+(1 row affected)
+
+10. How many query plans use the index au_idx3?  Define the query and obtain the answer.
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%au_idx3%’
+
+ -----------
+           0
+(1 row affected)
+
+11. How many query plans perform a table scan?  Define the query and obtain the answer.
+
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%t_scan%’
+
+ -----------
+           7
+(1 row affected)
+
+12. The following query describes the queries that perform a table scan.  For each query that is in the result set, explain why it performs a table scan.
+
+
+select text from sysqueryplans
+where type = 10 and id in 
+  (select id from sysqueryplans where type = 100 and text like ‘%t_scan%’)
+
+
+text                                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------- 
+select * from authors where au_lname = 'Eco'                                                                                                                                                                                                                    
+select count(*) from titles_idpr                                                                                                                                                                                                                                
+select * from authors where city = 'Las Vegas'                                                                                                                                                                                                                  
+select * from authors where city in ('Los Angeles', 'San Diego', 'San Francisco')                                                                                                                                                                               
+select * from authors where phone like '925%'                                                                                                                                                                                                                   
+select city, count(*) from authors group by city order by city                                                                                                                                                                                                  
+select * from authors order by au_lname
+
+
+For each query in the result, explain why it performs a table scan
+
+      select * from authors where city = 'Las Vegas'
+
+		No index exists on city
+
+	select * from authors where city in ('Los Angeles', 'San Diego', 'San Francisco')
+
+		No index exists on city
+
+select * from authors where phone like '925%' 
+
+	No index exists on phone
+
+                                                                                                                                                                                                                  
+select city, count(*) from authors group by city order by city
+
+	No index exists on city
+
+                                                                                                                                                                                                  
+select * from authors order by au_lname
+
+
+	No index exists on au_lname
+
+13. How many queries perform a join?  Define the query and obtain the answer.
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%join%’
+
+ -----------
+          11
+(1 row affected)
+
+14. How many queries perform a nested loop join?  Define the query and obtain the answer.
+
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%nl_join%’
+
+ -----------
+           10
+(1 row affected)
+
+15. How many queries perform a merge join?  Define the query and obtain the answer.
+
+select count(*) from sysqueryplans
+where type = 100 and text like ‘%m_join%’
+
+ -----------
+           1
+(1 row affected)
+
+
+16. Exit from all isql sessions.
+
+
+

@@ -1,0 +1,1463 @@
+Module 10: Parallelism
+
+Lab 10-1: Examining Parallel Query Plans - Solution
+Lab Setup
+There is a setup and a cleanup script required for this lab.
+If you need to start this lab again at any time, the tables used in this lab can be refreshed by executing the UNIX shell script named par_setup.sh located in your $HOME/ptquery15 directory.
+Objectives
+After completing this lab, you should be able to:
+* Describe two different types of parallel access methods.
+Description
+In this lab you will be using showplan and noexec settings to observe the query plans of queries that will demonstrate two different parallel access methods
+
+Task Outline 
+Task 1: Configuring Parallelism
+Task 2: Forcing Parallelism
+Task 3: Examining Runtime Adjustments
+
+Detailed Instructions and Solutions
+Task 1: Configuring Parallelism
+Procedure
+
+       
+
+   
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.
+1. Perform the lab setup.
+a.	Change the directory to $HOME/ptquery15.
+
+cd $HOME/ptquery15
+
+b.	Execute the UNIX shell script par_setup.sh.
+
+par_setup.sh
+
+###################################################################
+Setting up tables for Parallel Access Overview . . .
+###################################################################
+
+Starting copy...
+1000 rows sent to SQL Server.
+2000 rows sent to SQL Server.
+
+
+(output deleted)
+
+Starting copy...
+1000 rows sent to SQL Server.
+
+1666 rows copied.
+Clock Time (ms.): total = 5000  Avg = 3 (333.20 rows per sec.)
+
+
+
+The setup script creates some tables and establishes some configuration parameters to enable parallelism.  The next few steps allows you to see how the current environment has been set.
+
+2. Determine whether Adaptive Server is configured for parallel access.
+a.	In Window A, connect to Adaptive Server as the sa.
+
+isql -Usa -P -Dpubtune_db
+
+b. Display the configuration variables related to parallel access by using
+sp_configure .
+
+exec sp_configure 'max parallel degree'
+exec sp_configure 'number of worker processes'
+exec sp_configure ‘min pages for parallel scan’
+
+
+Configuration option is not unique.
+
+Parameter Name              Default  . . . Config Value Run Value  --------------------------- ------- ------ ------------ ---------
+max parallel degree               1                 4            4 
+
+(output modified for clarity)
+
+Parameter Name              Default  . . . Config Value Run Value  --------------------------- ------- ------ ------------ ---------
+number of worker processes        0                   5         5 
+
+(output modified for clarity)
+
+Parameter Name              Default  . . . Config Value Run Value  --------------------------- ------- ------ ------------ ---------
+min pages for parallel scan     200                20           20 
+
+(output modified for clarity)
+                                                             
+
+
+Can the Adaptive Server perform parallel access, where appropriate?
+Yes
+If the number of worker processes were set greater than 0 but max parallel degree remained in the default state, would this be sufficient to enable parallel access?
+No. This condition alone is not sufficient to enable parallel access. Both number of worker processes and max parallel degree must be configured for greater than 0 and 1 respectively and max parallel degree must be the smaller number of the two.
+
+3. Observe the conditions under which partition-based parallel access is used.
+a.	In Window A, as the sa, examine the characteristics of the titles_par, titles_hash and ta_hash tables in the pubtune_db database by using sp_help.  Fill in the table below.
+
+exec sp_help titles_par
+exec sp_help titles_hash
+exec sp_help ta_hash
+
+
+ Name       Owner Object_type Create_date         
+---------- ----- ----------- ------------------- 
+titles_par dbo   user table  Apr 13 2008  3:16AM 
+
+
+…output deleted…
+Table NameLock scheme# of PartitionsAverage pages per partitionRatio (skew)titles_parAllpages33351.0000titles_hashAllpages41561.0256ta_hashAllpages41561.0256           
+
+
+
+Are all the tables partitioned?
+Yes. 
+What is the locking schemes for the tables?
+Each table uses the Allpages locking scheme.
+Is parallel access possible for the each table? Explain.
+Yes. 
+The tables are partitioned so partition-based parallel access can be considered. Notice that the number of partitions on each table (4) is fewer than or equal to the setting for the configuration option max parallel degree (4), there are more than 20 pages in each partition, and that the partition skew (Ratio) is less than 1.8.
+
+
+b.	In Window B, log into the Adaptive Server as the sa user and use the pubtune_db database 
+	
+
+   isql -Usa -P -Dpubtune_db
+   
+
+In order to examine the operators and query plans the optimizer will be using, we will enable showplan, statistics plancost and to prevent a large amount of data output, it makes sense to prevent data from being returned.   
+
+4. Setup the current session to verify parallel access by using showplan and plancost output.
+a.	Continuing in Window B, activate Adaptive Server diagnostic commands showplan and statistics plancost as well as setting nodata on
+
+set showplan on
+set statistics plancost on
+set nodata on
+
+
+b.	In Window B, issue a simple query that will likely do table scans on the titles_hash and ta_hash tables as part of a join and observe the output.
+
+select * from titles_hash t, ta_hash ta where t.title_id = ta.title_id
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	7 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 7)
+       |
+       |   |EXCHANGE Operator (VA = 6) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 5)
+       |   |   |
+       |   |   |   |MERGE JOIN Operator (Join Type: Inner Join) (VA = 4)
+       |   |   |   | Using Worktable3 for internal storage.
+       |   |   |   |  Key Count: 1
+       |   |   |   |  Key Ordering: ASC
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 1)
+       |   |   |   |   | Average Row width is 185.999985 
+       |   |   |   |   | Using Worktable1 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  titles_hash
+       |   |   |   |   |   |  t
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 3)
+       |   |   |   |   | Average Row width is 186.000000 
+       |   |   |   |   | Using Worktable2 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 2)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  ta_hash
+       |   |   |   |   |   |  ta
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                                             
+                                                           Emit
+                                                          (VA = 7)
+                                                		r:5000
+ 								 	er:5000
+                                                          cpu: 100
+
+
+
+                                                 /
+                                                Exchange
+                                                P(4)  C(1)
+                                                (VA = 6)
+                                                r:5000 er:5000
+                                                l:0 el:887
+                                                p:0 ep:0
+
+                                     /
+                                    ExchangeEmit
+                                    (VA = 5)
+                                    r:5000 er:5000
+                                    l:0 el:887
+                                    p:0 ep:0
+
+
+                         /
+                        MergeJoin
+                        Inner Join
+                        (VA = 4)
+                        r:5000 er:5000
+
+
+
+             /                      \
+            Sort                    Sort
+                                    
+            (VA = 1)                (VA = 3)
+            r:5000 er:5000          r:5000 er:5000
+            l:724 el:549            l:722 el:549
+            p:648 ep:1088           p:648 ep:1088
+            cpu: 0 bufct: 32        cpu: 100 bufct: 32
+ /                       /
+TableScan               TableScan
+titles_hash (t)         ta_hash (ta)
+(VA = 0)                (VA = 2)
+r:5000 er:5000          r:5000 er:5000
+l:624 el:666            l:624 el:658
+p:315 ep:666            p:306 ep:658
+
+============================================================
+
+
+
+
+
+What access methods were used, table scan or index?
+Each table was access using a table scan with a 4 way partition scan
+Did the query use parallel processing?
+Yes.
+Can you determine how many worker processes were used and what type of parallel access was used, hash-based or partition-based?
+	Yes. The showplan output clearly indicates a four-way partition scan and 4 producers are defined.  The Plancost output indicates the Exchange Operator using 4 Producer threads and 1 Consumer thread.
+5. Control the degree of parallelism on the titles_hash table and see how the query plan changes
+a. In Window A, run the following statement to limit the number of worker processes the titles_hash table can use to 2.
+
+sp_chgattribute titles_hash, ‘plldegree’, 2
+
+b. Execute the following query in Window B
+
+select * from titles_hash t, ta_hash ta where t.title_id = ta.title_id
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 2 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	7 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 7)
+       |
+       |   |EXCHANGE Operator (VA = 6) (Merged)
+       |   |Executed in parallel by 2 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 5)
+       |   |   |
+       |   |   |   |MERGE JOIN Operator (Join Type: Inner Join) (VA = 4)
+       |   |   |   | Using Worktable3 for internal storage.
+       |   |   |   |  Key Count: 1
+       |   |   |   |  Key Ordering: ASC
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 1)
+       |   |   |   |   | Average Row width is 185.999985 
+       |   |   |   |   | Using Worktable1 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  titles_hash
+       |   |   |   |   |   |  t
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 2-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 3)
+       |   |   |   |   | Average Row width is 186.000000 
+       |   |   |   |   | Using Worktable2 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 2)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  ta_hash
+       |   |   |   |   |   |  ta
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 2-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                                             
+                                                           Emit
+                                                           (VA = 7)
+                                                           r:5000 er:5000
+                                                            cpu: 100
+
+
+
+                                                 /
+                                                Exchange
+                                                P(2)  C(1)
+                                                (VA = 6)
+                                                r:5000 er:5000
+                                                l:0 el:887
+                                                p:0 ep:0
+
+                                     /
+                                    ExchangeEmit
+                                    (VA = 5)
+                                    r:5000 er:5000
+                                    l:0 el:887
+                                    p:0 ep:0
+
+
+                         /
+                        MergeJoin
+                        Inner Join
+                        (VA = 4)
+                        r:5000 er:5000
+
+
+
+             /                      \
+            Sort                    Sort
+                                    
+            (VA = 1)                (VA = 3)
+            r:5000 er:5000          r:5000 er:5000
+            l:705 el:549            l:707 el:549
+            p:646 ep:1088           p:646 ep:1088
+            cpu: 100 bufct: 32      cpu: 0 bufct: 32
+ /                       /
+TableScan               TableScan
+titles_hash (t)         ta_hash (ta)
+(VA = 0)                (VA = 2)
+r:5000 er:5000          r:5000 er:5000
+l:624 el:666            l:624 el:658
+p:0 ep:666              p:0 ep:658
+
+============================================================
+
+
+Did the query use parallel processing?
+Yes.
+How did the query plan change following the limitation of the number of worker processes on the titles_hash table?
+	Instead of using 4 worker processes, the degree of parallelism on BOTH tables decreased to 2.
+c. In Window A, run the following statement to return the limit on the number of worker processes the titles_hash table can use to 4.
+
+sp_chgattribute titles_hash, ‘plldegree’, 4
+
+6. Returning to Window B, run a second query and examine the showplan output
+a. Turn on set statistics time to capture execution time statistics
+
+set statistics time on
+b. Run a simple query against the titles_par table that should yield a table scan and examine the output
+	
+	select title from titles_par
+
+ QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_par
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+             
+            Emit
+            (VA = 1)
+            r:5000 er:5000
+            cpu: 0
+
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1022 el:1022
+p:0 ep:1005
+
+============================================================
+
+Execution Time 0.
+Adaptive Server cpu time: 0 ms.  Adaptive Server elapsed time: 10 ms.
+
+
+
+Would the query have executed in parallel?
+No, the query would have executed in serial
+How long did the query take to execute?
+10 milliseconds
+Make a note of this number for the next lab.
+
+
+Task 2: Forcing Parallelism 
+Procedure
+
+       
+
+   
+  
+This task is designed to allow you to observe what can happen when parallelism is forced on a query
+1. Rerun the query from Task 1, Step 6 and observe the results when parallelism is forced
+a. In Window A, Alter the titles_par table to be partitioned 4 ways
+
+alter table titles_par partition by roundrobin 4
+
+b. In Window A, change the max query parallel degree setting to be 4
+
+sp_configure ‘max query parallel degree’, 4
+
+c.	In Window B issue the following statement, forcing parallelism on the query:
+
+select title from titles_par (parallel 4)
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(4)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+Execution Time 0.
+Adaptive Server cpu time: 0 ms.  Adaptive Server elapsed time: 16 ms.
+
+
+Does the query plan execute in parallel?
+Yes.
+Did the forcing of parallelism improve the execution time of the query?
+No.  The forced parallelism resulted in a query execution time of 16 milliseconds, whereas it ran in 10 milliseconds when executed in serial.  For this particular query, parallel execution is slower.
+
+NOTE:  Your times may be different.  One possible change is do to the effects of caching on the first query.  If the second query runs faster, rerun the two queries again to see that the parallel method is actually slower.
+
+
+
+2. Examine the effect of the configuration parameter max query parallel degree and it’s interaction with the from clause method of forcing parallelism.  You’ll be executing the same query used in Step 1 of this task.
+
+
+a. In Window A, change the max parallel degree parameter to disable compilation of queries in parallel.
+
+sp_configure “max parallel degree”, 1
+
+
+Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type       
+------------------------------ ----------- ----------- ------------ ------------ -------------------- ---------- 
+max parallel degree                      1           0            1            1 number               dynamic    
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Changing the value of 'max parallel degree' does not increase the amount of memory Adaptive Server uses. 
+
+
+b. Shifting to Window B, turn off set statistics time 
+
+set statistics time off
+
+
+c. In Window B, issue the following query:
+
+select title from titles_par
+plan “(use parallel 4)”
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_par
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+             
+            Emit
+            (VA = 1)
+            r:5000 er:5000
+            cpu: 0
+
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+
+Does this query make use of parallelism?
+No, the query plan is generated in serial.
+NOTE:  If the table attribute ‘plldegree’ has not been configured for a table, then forces are not allowed when using the plan clause syntax to force parallelism.
+
+d. In Window A, run the following statement to return the limit on the number of worker processes the titles_par table can use to 4.
+
+sp_chgattribute titles_par, ‘plldegree’, 4
+
+'plldegree' attribute of object 'titles_par' changed to 4.
+
+
+e.  In Window B, issue the following query:
+
+select title from titles_par
+plan “(use parallel 4)”
+
+title                                                                            
+------------------------------------------------------------------ 
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(4)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+
+
+Does this query make use of parallelism?
+Yes, the query plan is now generated in parallel.
+
+f. In Window A, run the following statement to return the limit on the number of worker processes the titles_par table can use to 2.
+
+sp_chgattribute titles_par, ‘plldegree’, 2
+
+'plldegree' attribute of object 'titles_par' changed to 2.
+
+
+g.  In Window B, issue the following query:
+
+select title from titles_par
+plan “(use parallel 4)”
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 2 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 2 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 2-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(2)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+
+
+Does this query make use of parallelism?
+Yes, the query plan is a parallel plan.
+How is it different from the previous plan?
+This plan uses two worker processes instead of four.
+
+NOTE:  If the table attribute ‘plldegree’ is lower than the value of ‘max query parallel degree’, then it takes precedence and limits the number of worker processes the query is allowed to use when using the plan clause syntax to force parallelism.
+
+
+h. In Window A, run the following statement to return the limit on the number of worker processes the titles_par table can use to 8.
+
+sp_chgattribute titles_par, ‘plldegree’, 8
+
+'plldegree' attribute of object 'titles_par' changed to 8.
+
+
+i.  In Window B, issue the following query:
+
+select title from titles_par
+plan “(use parallel 4)”
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(4)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+Does this query make use of parallelism?
+Yes, the query plan is a parallel plan.
+How is it different from the previous plan?
+It’s not different from the previous plan.
+
+NOTE:  If the table attribute ‘plldegree’ is higher than the value of ‘max query parallel degree’, then the max query parallel degree parameter takes precedence and limits the number of worker processes the query is allowed to use when using the plan clause syntax to force parallelism.  In this case, because the query only requested 4 worker processes, there is no effect on the query.
+
+
+
+j.  In Window B, issue the following query:
+
+select title from titles_par
+plan “(use parallel 8)”
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(4)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+Does this query make use of parallelism?
+Yes, the query plan is a parallel plan.
+How is it different from the previous plan?
+It’s not different from the previous plan.
+
+NOTE:  If the table attribute ‘plldegree’ is higher than the value of ‘max query parallel degree’, then the max query parallel degree parameter takes precedence and limits the number of worker processes the query is allowed to use when using the plan clause syntax to force parallelism.  Here, that means that I get 4 worker processes instead of the 8 that were requested.
+
+
+3. Examine the effect of the configuration parameter max query parallel degree and it’s interaction with the plan clause method of forcing parallelism.  You’ll be executing the same query used in Step 1 of this task.
+
+
+a. In Window A, change the ‘plldegree’ table attribute parameter back to the default.
+
+sp_chgattribute titles_par, “plldegree”, 0
+
+
+'plldegree' attribute of object 'titles_par' changed to 0.
+
+
+b. Shifting to Window B, issue the following query:
+
+select title from titles_par (parallel 4)
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_par
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+             
+            Emit
+            (VA = 1)
+            r:5000 er:5000
+            cpu: 0
+
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+
+Does this query make use of parallelism?
+No, the query plan is generated in serial.
+NOTE:  If neither the session level setting set parallel_degree or the server level setting ‘max parallel degree’ allow parallelism, then the force is ignored.
+
+c. In Window B, run the following statement to set the session level parallel degree setting to 4.
+
+set parallel_degree 4
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SET COMMAND.
+
+d.  In Window B, issue the following query:
+
+select title from titles_par (parallel 4)
+
+title                                                                            
+------------------------------------------------------------------ 
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(4)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+Does this query make use of parallelism?
+Yes, the query plan is now generated in parallel.
+
+e. In Window B, run the following statement to set the session level parallel degree setting to 2.
+
+set parallel_degree 2
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SET COMMAND.
+
+f.  In Window B, issue the following query:
+
+select title from titles_par (parallel 4)
+
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_par
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+             
+            Emit
+            (VA = 1)
+            r:5000 er:5000
+            cpu: 0
+
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+Does this query make use of parallelism?
+No.  The force is ignored.
+
+NOTE:  If the session level setting of set parallel_degree is lower than both the value of ‘max query parallel degree’ and the number of worker processes requested, then the force is ignored when using the from clause syntax to force parallelism.
+
+
+
+g.  In Window B, issue the following query:
+
+select title from titles_par (parallel 2)
+
+title                                                                            
+------------------------------------------------------------------
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 2 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 2 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_par
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 2-way partition scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+==================== Lava Operator Tree ====================
+
+                                     
+                                    Emit
+                                    (VA = 3)
+                                    r:5000 er:5000
+                                    cpu: 0
+
+
+                         /
+                        Exchange
+                        P(2)  C(1)
+                        (VA = 2)
+                        r:5000 er:5000
+                        l:0 el:201
+                        p:0 ep:0
+             /
+            ExchangeEmit
+            (VA = 1)
+            r:5000 er:5000
+            l:0 el:201
+            p:0 ep:0
+
+ /
+TableScan
+titles_par
+(VA = 0)
+r:5000 er:5000
+l:1025 el:1064
+p:0 ep:1039
+
+============================================================
+
+Does this query make use of parallelism?
+Yes, the query plan is a parallel plan.
+
+NOTE:  If the session level setting of set parallel_degree is lower than the value of ‘max query parallel degree’ but equal to or greater than the number of worker processes requested, then the force is applied when using the from clause version of syntax.
+
+
+
+h.  In Window B, run the following statement to set the session level parallel degree setting to 8.
+
+set parallel_degree 8
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SET COMMAND.
+
+The value of 'parallel_degree' (`8') cannot be larger than the value of configuration parameter 'max query parallel degree' (`4'). The value '4' is used for 'parallel_degree'.
+
+
+What is the session level setting now?
+When a value for the session level is set to be higher than that of the max query parallel degree parameter, then the value is automatically set equal to the value of that parameter.  The session level value can only be less than or equal to that of the max query parallel degree parameter.  
+
+i. In Window B, run the following statement to reset the max query parallel degree parameter and max parallel degree parameter.
+
+sp_configure ‘max query parallel degree’, 1
+sp_configure ‘max parallel degree’, 4
+
+
+j. Log out of the session in Window B.
+
+Task 3: Examining Runtime Adjustments for Parallel Access
+
+
+       
+
+   
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.Procedure
+
+
+1.	In Window B, verify that another query executes in parallel by also using a partition-based scan.
+a.	In Window B, connect to Adaptive Server as the sa and access the pubtune_db database.
+
+isql -Usa -P -D pubtune_db
+
+b.	Activate the Adaptive Server showplan and noexec diagnostic commands.
+
+set showplan, noexec on
+
+
+
+	Use noexec because the next query has a large amount of output, but you want to view only the showplan output.
+c.	Execute the following query and observe the degree of parallelism, if any.
+
+select * from titles_hash t, ta_hash ta where t.title_id = ta.title_id
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	7 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 7)
+       |
+       |   |EXCHANGE Operator (VA = 6) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 5)
+       |   |   |
+       |   |   |   |MERGE JOIN Operator (Join Type: Inner Join) (VA = 4)
+       |   |   |   | Using Worktable3 for internal storage.
+       |   |   |   |  Key Count: 1
+       |   |   |   |  Key Ordering: ASC
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 1)
+       |   |   |   |   | Average Row width is 185.999985 
+       |   |   |   |   | Using Worktable1 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  titles_hash
+       |   |   |   |   |   |  t
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+       |   |   |   |
+       |   |   |   |   |SORT Operator (VA = 3)
+       |   |   |   |   | Average Row width is 186.000000 
+       |   |   |   |   | Using Worktable2 for internal storage.
+       |   |   |   |   |
+       |   |   |   |   |   |SCAN Operator (VA = 2)
+       |   |   |   |   |   |  FROM TABLE
+       |   |   |   |   |   |  ta_hash
+       |   |   |   |   |   |  ta
+       |   |   |   |   |   |  Table Scan.
+       |   |   |   |   |   |  Forward Scan.
+       |   |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+Did the query run in parallel? If yes, what degree of parallelism was used?
+Yes. 
+The optimizer used a 4-way partition scan.
+Does it appear that a runtime adjustment was made?
+	No. 
+2. You have just seen two different queries that execute in parallel, each using a 3-way partition scan. Now examine what happens when the queries run simultaneously.  You will be setting up one query to run in Window A and another to run in Window B and then quickly switch from B to A to execute them simultaneously.
+
+a.	In Window A, set showplan on and set the process_limit_action to the warning level
+
+set showplan on
+set process_limit_action warning
+
+b.	Continuing in Window A, type in the following query again followed by the go but do not execute it yet!
+
+select sum(total_sales) from titles_par (parallel 4)
+go
+
+c.	In Window B, turn off the Adaptive Server diagnostic commands showplan and noexec.
+
+set showplan, noexec off
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION OFF.
+
+d.	In Window B, execute the following query again.
+
+
+In step 4c, this query executed in parallel with a 3-way partition scan.
+	Do not wait for the query to finish; go immediately to Window A and hit RETURN to execute that query while Window B is still running
+	You may have to execute these 2 queries more than once to be fast enough to catch the second while the first is still running.
+
+select * from titles_hash t, ta_hash ta where t.title_id = ta.title_id
+
+(output deleted . . .)
+
+ Scenario for using the Network Journal
+ IEEE 802
+ Restricted use of IMP DDT
+ Memo from the Consortium for Slow Commotion Research (CSCR)
+ NFILE - a file access protocol NFILE a file access protocol
+ Coordination of equipment and supplies purchase
+(5000 rows affected)
+
+e.	In Window A, execute the query you typed in step 5b.
+
+[ RETURN ]
+
+            
+----------- 
+135699846   
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 4 worker processes.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	4 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 4)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 3)
+       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |
+       |   |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |   |
+       |   |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |   |
+       |   |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |   |  FROM TABLE
+       |   |   |   |   |  titles_par
+       |   |   |   |   |  Table Scan.
+       |   |   |   |   |  Forward Scan.
+       |   |   |   |   |  Positioning at start of table.
+       |   |   |   |   |  Executed in parallel with a 4-way partition scan.
+       |   |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+AN ADJUSTED QUERY PLAN IS BEING USED FOR STATEMENT 1 BECAUSE
+NOT ENOUGH WORKER PROCESSES ARE CURRENTLY AVAILABLE.
+
+ADJUSTED QUERY PLAN:
+Warning: Insufficient worker processes available. Query executed using current available worker processes. Inform the system administrator (SA) that the value of worker processes may be too low.
+                                                                
+
+
+
+Did the query in Window A experience a runtime adjustment? Explain. 
+Yes. 
+The query was originally optimized to use a 4-way partition scan, but at runtime an adjustment had to be made to use another plan. The adjusted query plan is not shown in this output and may be a result of an error in the processing.
+The server is configured as follows:
+number of worker processes = 5
+max parallel degree = 4
+The long-running query in Window B is using a 4-way partition scan at the time that the query in Window A is optimized to also use a 4-way partition scan. Because the server is only configured for five worker processes, there can’t be eight (4 + 4) worker processes in use at one time. 
+When there are not enough worker processes available for parallel partition-based access, the optimizer automatically makes a runtime adjustment to use the only worker process available and it must therefore be a serial process.  Since it is a full serial process, the optimizer will recompile the plan for serial execution.	
+
+3. Perform the lab cleanup.
+a.	In Window A, exit from your Adaptive Server client session.
+b.	In Window B, exit from isql session and change the directory to $HOME/ptquery15 if necessary.
+
+1>  exit
+
+cd $HOME/ptquery15
+
+
+c.	Execute the UNIX shell script named par_cleanup.sh.
+
+par_cleanup.sh
+
+###################################################################
+Cleaning up from Parallel Access Overview . . .
+###################################################################         
+
+(output deleted)
+
+5000 rows copied.
+Clock Time (ms.): total = 7000  Avg = 1 (714.29 rows per sec.)
+
+

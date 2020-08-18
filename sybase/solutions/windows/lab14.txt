@@ -1,0 +1,2058 @@
+Module 14: Tuning Optimizer Statistics
+
+Lab 14-1: Tuning Optimizer Statistics - Solution
+Lab Setup
+There is a setup script required for this lab. Also, if you need to start this lab again at any time, you can refresh the table used in this lab by executing the commands in the T-SQL script tune_stats_setup.sql:
+
+isql -Usa -P -i tune_stats_setup.sql
+
+The script is located in your $HOME/ptquery15 directory.
+
+Objectives
+After completing this lab, you should be able to:
+* Compare optimizer estimates of the number of expected rows for a given query with actual values returned by executing the query 
+* Modify column distribution statistics and observe their effect on optimizer estimates
+* Create simulated statistics
+* Use simulated statistics to compare performance
+
+Description
+In this lab, you will execute the query and compare the optimizer estimates with the number of expected rows with the actual values. You will also modify the column distribution statistics and compare it with the optimizer statistics.
+
+Task Outline 
+Task 1: Modifying Column Statistics 
+Task 2: Creating Column Statistics on Minor Index Attributes 
+Task 3: Creating and Using Simulated Statistics
+
+Detailed Instructions and Solutions
+Task 1: Modifying Column Statistics 
+Description
+
+
+       
+
+   
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.Procedure
+
+1.	Perform the lab setup.
+a.	Change the directory to $HOME/ptquery125.
+
+cd $HOME/ptquery15
+
+b.	Execute the commands in the T-SQL script tune_stats_setup.sql.
+
+isql -Usa -P -i tune_stats_setup.sql
+
+P&T 15: creating tables for TUNING OPTIMIZER STATISTICS lab exercises . . .
+DONE!
+
+
+
+   This script creates a table named tune_stats_table.
+The table has two columns, col1 and col2. Initially, each row has a unique value for col1. You can refresh the tune_stats_table table to start the lab again at any time by executing this step again.
+
+2.	Examine the characteristics of a table that has no indexes and no column statistics.
+a.	Connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Verify that the table named tune_stats_table has no indexes.
+
+sp_helpindex tune_stats_table
+
+Object does not have any indexes.
+(return status = 1)
+
+c.	In Window B, verify that Adaptive Server is not storing any column statistics for the table by using optdiag.
+
+optdiag statistics pubtune_db..tune_stats_table -Usa -P
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "tune_stats_table"
+Specified column:                       not specified
+
+Table owner:                            "dbo"
+Table name:                             "tune_stats_table"
+
+Statistics for table:                   "tune_stats_table"
+
+     Data page count:                   295
+     Empty data page count:             0
+     Data row count:                    10000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                37.0000000000000000
+     OAM + allocation page count:       3
+     First extent data pages:           0
+     Data row size:                     56.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 6
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.9416195856873822
+     Large I/O efficiency:              1.0000000000000000
+
+No statistics for remaining columns:    "col1"
+(default values used)                   "col2"
+
+Optdiag succeeded.                                                              
+
+
+How many rows are currently in the table?
+There are currently 10000 rows in the table.
+Given that there are no indexes or column statistics for the table named tune_stats_table and the table was initially loaded with unique values, 1 through 10000, for column col1, how many rows would the optimizer estimate to be returned by the following query? Explain.
+
+select count(*) from tune_stats_table
+where col1 = 5000
+Because there are no column statistics for this table, the optimizer would use default statistics and estimate that 10% of the rows would qualify. 10% of the table translates to 1000 rows.
+3.	Compare optimizer estimates of the number of expected rows for a given query with actual values returned by executing the query.
+a.	In Window A, activate trace flags 3604 by using dbcc traceon and set option show_lio_costing on
+
+dbcc traceon(3604)
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+
+b.	Activate option show_lio_costing
+
+set option show_lio_costing on
+
+c. Execute the following query, examine the output, and fill in the following chart.
+
+select count(*) RESULT
+from tune_stats_table
+where col1 = 5000
+
+RESULT      
+----------- 
+1           
+
+Estimating selectivity for table 'tune_stats_table'
+    Table scan cost is 10000 rows, 295 pages,
+
+The table (Allpages) has 10000 rows, 295 pages,
+Data Page Cluster Ratio 1.0000000
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.1,
+    Search argument selectivity is 0.1.
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 9265 ):
+	lio=295 pio=295 cpu=13000
+
+ScenarioOptimizer Estimated SelectivityOptimizer Estimated Number of RowsActual Number of RowsNo index on original data0.110001	
+
+
+Why is there a difference between the optimizer estimate and the actual result? Explain the estimated number of rows based on the optimizer estimated selectivity.
+There is a significant difference between the optimizer estimate and the actual result. This behavior was expected because there are no column statistics for this table.
+The optimizer used default statistics and estimated that 10% of the rows would qualify. 10% of the table translates to 1000 rows.
+4.	Determine whether creating an index helps the optimizer make a more accurate estimate.
+a.	Create an index on col1 of the table tune_stats_table as follows:
+
+create index idx1 on tune_stats_table(col1)
+
+b.	Execute the following query again, examine the output, and fill in the chart.
+
+select count(*) RESULT
+from tune_stats_table
+where col1 = 5000
+
+RESULT      
+----------- 
+1           
+Beginning selection of qualifying indexes for table 'tune_stats_table',
+
+Estimating selectivity of index 'tune_stats_table.idx1', indid 2
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0001,
+    scan selectivity 0.0001, filter selectivity 0.0001
+    1 rows, 1 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.996124
+    using no index prefetch (size 2K I/O)
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity for table 'tune_stats_table'
+    Table scan cost is 10000 rows, 295 pages,
+
+The table (Allpages) has 10000 rows, 295 pages,
+Data Page Cluster Ratio 1.0000000
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0001,
+    Search argument selectivity is 0.0001.
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 54.39999 ):
+	lio=2 pio=2 cpu=4
+
+ScenarioOptimizer Estimated SelectivityOptimizer Estimated Number of RowsActual Number of RowsNo index on original data0.110001Created index on original data0.000111
+
+
+Does the optimizer make a more accurate estimate due to the presence of the column statistics created along with the index?
+Yes. The estimated and actual results are both 1.
+5.	Examine the effect of adding more data to the table without updating statistics.
+a.	Turn off show_lio_costing
+
+dbcc traceoff(3604)
+set option show_lio_costing off
+
+b.	Insert another 200 duplicate rows into tune_stats_table as follows:
+
+insert tune_stats_table values (5000, "testing 4, 5, 6")
+go 200
+
+(1 row affected)
+200 xacts:
+
+c.	Turn on show_lio_costing 
+
+dbcc traceon(3604)
+set option show_lio_costing on
+
+d.	Execute the following query again, examine the output, and fill in the chart.
+
+select count(*) RESULT
+from tune_stats_table
+where col1 = 5000
+
+RESULT      
+----------- 
+201         
+
+
+Beginning selection of qualifying indexes for table 'tune_stats_table',
+
+Estimating selectivity of index 'tune_stats_table.idx1', indid 2
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0001,
+    scan selectivity 0.0001, filter selectivity 0.0001
+    1.02 rows, 1 pages
+    Index covers query.
+    Data Row Cluster Ratio 0.999798
+    Index Page Cluster Ratio 0.98
+    Data Page Cluster Ratio 0.9924242
+    using no index prefetch (size 2K I/O)
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity for table 'tune_stats_table'
+    Table scan cost is 10200 rows, 300 pages,
+
+The table (Allpages) has 10200 rows, 300 pages,
+Data Page Cluster Ratio 0.9999900
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0001,
+    Search argument selectivity is 0.0001.
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 54.40799 ):
+	lio=2 pio=2 cpu=4.08
+
+ScenarioOptimizer Estimated SelectivityOptimizer Estimated Number of RowsActual Number of RowsNo index on original data0.110001Created index on original data0.000111Added 200 rows col1 = 5000
+Statistics not updated0.00011.02201
+
+
+Previously the table had one row where col1 = 5000. Now it has an additional 200 rows with the same value.
+Has the optimizer made an accurate estimate based on the new data in the table? Explain.
+No. The optimizer still estimates one row to qualify. New data was inserted into the table, but column statistics are not automatically updated.	
+
+6.	Determine whether updating statistics helps the optimizer estimate the correct number of rows.
+a.	Update the column statistics for tune_stats_table.col1.
+
+update statistics tune_stats_table(col1)
+
+b.	Execute the following query again, examine the trace flag output, and fill in the following chart.
+
+select count(*) RESULT
+from tune_stats_table
+where col1 = 5000
+
+RESULT      
+----------- 
+201         
+
+
+Beginning selection of qualifying indexes for table 'tune_stats_table',
+
+Estimating selectivity of index 'tune_stats_table.idx1', indid 2
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0004844291,
+    scan selectivity 0.0004844291, filter selectivity 0.0004844291
+    4.941176 rows, 1 pages
+    Index covers query.
+    Data Row Cluster Ratio 0.999798
+    Index Page Cluster Ratio 0.98
+    Data Page Cluster Ratio 0.9924242
+    using no index prefetch (size 2K I/O)
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity for table 'tune_stats_table'
+    Table scan cost is 10200 rows, 300 pages,
+
+The table (Allpages) has 10200 rows, 300 pages,
+Data Page Cluster Ratio 0.9999900
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.0004844291,
+    Search argument selectivity is 0.0004844291.
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 55.97646 ):
+	lio=2 pio=2 cpu=19.76471
+
+
+ScenarioOptimizer Estimated SelectivityOptimizer Estimated Number of RowsActual Number of RowsNo index on original data0.110001Created index on original data0.000111Inserted 200 rows col1 = 5000
+Statistics not updated0.00011201Updated statistics0.00048442911201
+
+
+Has the optimizer made an accurate estimate based on the updated statistics? Explain.
+No. the estimate is still far off the actual value of 201.
+Would you characterize the data in the table as being skewed around the value 5000?
+Yes.
+What action can you take to help the optimizer make a more accurate estimate for this skewed data?
+You can update the statistics again and specify a larger number of steps, or you can manually modify the column statistics specifically for your data skew.
+7.	Utilizing the Histogram Tuning Factor
+a.    In Window A, turn off the tracing commands
+
+dbcc traceoff(3604)
+set option show_lio_costing off
+
+b.	In Window A, create a copy of the titles table in the pubtune_db database as follows:
+
+select * into test_htf from titles
+
+c.	Ensure the histogram tuning factor is set to 1
+
+sp_configure “histogram_tuning_factor”, 1
+
+
+d.	Create statistics for the price column using the default number of steps
+
+update statistics test_htf(price)
+
+
+e.	Examine the statistics on the price column by running optdiag.
+
+optdiag statistics pubtune_db..test_htf.price -Usa -P
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "test_htf"
+Specified column:                       "price"
+
+Table owner:                            "dbo"
+Table name:                             "test_htf"
+
+Statistics for table:                   "test_htf"
+
+     Data page count:                   623
+     Empty data page count:             0
+     Data row count:                    5000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                78.0000000000000000
+     OAM + allocation page count:       4
+     First extent data pages:           0
+     Data row size:                     184.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 7
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.7325027389232847
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for column:                  "price"
+Last update of column statistics:       Feb 22 2009  7:58:49:153PM
+
+     Range cell density:                0.0134830400000000
+     Total density:                     0.0134830400000000
+     Range selectivity:                 default used (0.33)
+     In between selectivity:            default used (0.25)
+     Unique range values:               0.0133333333333333
+     Unique total values:               0.0133333333333333
+     Average column width:              8.0000000000000000
+
+Histogram for column:                   "price"
+Column datatype:                        money
+Requested step count:                   20
+Actual step count:                      20
+Sampling Percent:                       0
+Out of range Histogram Adjustment is DEFAULT.
+
+     Step     Weight                    Value
+
+        1     0.00000000       <=       1.95
+        2     0.06220000       <=       5.95
+        3     0.05360000       <=       9.95
+        4     0.06420000       <=       14.95
+        5     0.05300000       <=       18.95
+        6     0.06340000       <=       24.95
+        7     0.05400000       <=       28.95
+        8     0.05660000       <=       32.95
+        9     0.05600000       <=       36.95
+       10     0.05480000       <=       41.95
+       11     0.05180000       <=       45.95
+       12     0.05380000       <=       49.95
+       13     0.05660000       <=       53.95
+       14     0.04860000       <=       57.95
+       15     0.05240000       <=       62.95
+       16     0.05620000       <=       66.95
+       17     0.05440000       <=       70.95
+       18     0.03760000       <=       73.95
+       19     0.04320000       <=       201.95
+       20     0.02760000       <=       1010.00
+
+Optdiag succeeded.                                                              
+
+
+
+Examine the histogram for the price column.
+How many steps are used to represent the distribution of values for this column?
+The default value of 20 steps is used.
+Are any frequency count cells generated?
+No.  All cells created are range cells
+
+
+f.	Set the value for histogram tuning factor back to the default of 20
+
+sp_configure “histogram_tuning_factor”, 20
+
+
+g.	Create statistics for the price column using the default number of steps, but now using the histogram tuning factor
+
+update statistics test_htf(price)
+
+
+h.	Examine the statistics on the price column by running optdiag.
+
+optdiag statistics pubtune_db..test_htf.price -Usa -P
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "test_htf"
+Specified column:                       "price"
+
+Table owner:                            "dbo"
+Table name:                             "test_htf"
+
+Statistics for table:                   "test_htf"
+
+     Data page count:                   623
+     Empty data page count:             0
+     Data row count:                    5000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                78.0000000000000000
+     OAM + allocation page count:       4
+     First extent data pages:           0
+     Data row size:                     184.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 7
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.7325027389232847
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for column:                  "price"
+Last update of column statistics:       Feb 22 2009  8:02:16:123PM
+
+     Range cell density:                0.0000000000000000
+     Total density:                     0.0134830400000000
+     Range selectivity:                 default used (0.33)
+     In between selectivity:            default used (0.25)
+     Unique range values:               0.0000000000000000
+     Unique total values:               0.0133333333333333
+     Average column width:              8.0000000000000000
+
+Histogram for column:                   "price"
+Column datatype:                        money
+Requested step count:                   20
+Actual step count:                      150
+Sampling Percent:                       0
+Out of range Histogram Adjustment is DEFAULT.
+
+     Step     Weight                    Value
+
+        1     0.00000000        <       1.95
+        2     0.01280000        =       1.95
+        3     0.00000000        <       2.95
+        4     0.01120000        =       2.95
+        5     0.00000000        <       3.95
+        6     0.01240000        =       3.95
+        7     0.00000000        <       4.95
+        8     0.01220000        =       4.95
+        9     0.00000000        <       5.95
+       10     0.01360000        =       5.95
+       11     0.00000000        <       6.95
+       12     0.01520000        =       6.95
+       13     0.00000000        <       7.95
+       14     0.01400000        =       7.95
+       15     0.00000000        <       8.95
+       16     0.01200000        =       8.95
+       17     0.00000000        <       9.95
+       18     0.01240000        =       9.95
+       19     0.00000000        <       10.95
+       20     0.01440000        =       10.95
+       21     0.00000000        <       11.95
+       22     0.01200000        =       11.95
+       23     0.00000000        <       12.95
+       24     0.01260000        =       12.95
+       25     0.00000000        <       13.95
+       26     0.01200000        =       13.95
+       27     0.00000000        <       14.95
+       28     0.01320000        =       14.95
+       29     0.00000000        <       15.95
+       30     0.01360000        =       15.95
+       31     0.00000000        <       16.95
+       32     0.01120000        =       16.95
+       33     0.00000000        <       17.95
+       34     0.01540000        =       17.95
+       35     0.00000000        <       18.95
+       36     0.01280000        =       18.95
+       37     0.00000000        <       19.95
+       38     0.01160000        =       19.95
+       39     0.00000000        <       21.95
+       40     0.01300000        =       21.95
+       41     0.00000000        <       22.95
+       42     0.01420000        =       22.95
+       43     0.00000000        <       23.95
+       44     0.01120000        =       23.95
+       45     0.00000000        <       24.95
+       46     0.01340000        =       24.95
+       47     0.00000000        <       25.95
+       48     0.01400000        =       25.95
+       49     0.00000000        <       26.95
+       50     0.01320000        =       26.95
+       51     0.00000000        <       27.95
+       52     0.01220000        =       27.95
+       53     0.00000000        <       28.95
+       54     0.01460000        =       28.95
+       55     0.00000000        <       29.95
+       56     0.01420000        =       29.95
+       57     0.00000000        <       30.95
+       58     0.01500000        =       30.95
+       59     0.00000000        <       31.95
+       60     0.01240000        =       31.95
+       61     0.00000000        <       32.95
+       62     0.01500000        =       32.95
+       63     0.00000000        <       33.95
+       64     0.01180000        =       33.95
+       65     0.00000000        <       34.95
+       66     0.01680000        =       34.95
+       67     0.00000000        <       35.95
+       68     0.01400000        =       35.95
+       69     0.00000000        <       36.95
+       70     0.01340000        =       36.95
+       71     0.00000000        <       38.95
+       72     0.01320000        =       38.95
+       73     0.00000000        <       39.95
+       74     0.01180000        =       39.95
+       75     0.00000000        <       40.95
+       76     0.01460000        =       40.95
+       77     0.00000000        <       41.95
+       78     0.01520000        =       41.95
+       79     0.00000000        <       42.95
+       80     0.01460000        =       42.95
+       81     0.00000000        <       43.95
+       82     0.01220000        =       43.95
+       83     0.00000000        <       44.95
+       84     0.01120000        =       44.95
+       85     0.00000000        <       45.95
+       86     0.01380000        =       45.95
+       87     0.00000000        <       46.95
+       88     0.01440000        =       46.95
+       89     0.00000000        <       47.95
+       90     0.01240000        =       47.95
+       91     0.00000000        <       48.95
+       92     0.01260000        =       48.95
+       93     0.00000000        <       49.95
+       94     0.01440000        =       49.95
+       95     0.00000000        <       50.95
+       96     0.01400000        =       50.95
+       97     0.00000000        <       51.95
+       98     0.01520000        =       51.95
+       99     0.00000000        <       52.95
+      100     0.01360000        =       52.95
+      101     0.00000000        <       53.95
+      102     0.01380000        =       53.95
+      103     0.00000000        <       54.95
+      104     0.01260000        =       54.95
+      105     0.00000000        <       55.95
+      106     0.01160000        =       55.95
+      107     0.00000000        <       56.95
+      108     0.01200000        =       56.95
+      109     0.00000000        <       57.95
+      110     0.01240000        =       57.95
+      111     0.00000000        <       58.95
+      112     0.01400000        =       58.95
+      113     0.00000000        <       59.95
+      114     0.01280000        =       59.95
+      115     0.00000000        <       60.95
+      116     0.01380000        =       60.95
+      117     0.00000000        <       62.95
+      118     0.01180000        =       62.95
+      119     0.00000000        <       63.95
+      120     0.01480000        =       63.95
+      121     0.00000000        <       64.95
+      122     0.01180000        =       64.95
+      123     0.00000000        <       65.95
+      124     0.01420000        =       65.95
+      125     0.00000000        <       66.95
+      126     0.01540000        =       66.95
+      127     0.00000000        <       67.95
+      128     0.01100000        =       67.95
+      129     0.00000000        <       68.95
+      130     0.01480000        =       68.95
+      131     0.00000000        <       69.95
+      132     0.01480000        =       69.95
+      133     0.00000000        <       70.95
+      134     0.01380000        =       70.95
+      135     0.00000000        <       71.95
+      136     0.01260000        =       71.95
+      137     0.00000000        <       72.95
+      138     0.01160000        =       72.95
+      139     0.00000000        <       73.95
+      140     0.01340000        =       73.95
+      141     0.00000000        <       74.95
+      142     0.01780000        =       74.95
+      143     0.00000000        <       75.95
+      144     0.01460000        =       75.95
+      145     0.00000000        <       201.95
+      146     0.01080000        =       201.95
+      147     0.00000000        <       1000.00
+      148     0.01520000        =       1000.00
+      149     0.00000000        <       1010.00
+      150     0.01240000        =       1010.00
+
+Optdiag succeeded.                                                            
+
+
+
+Examine the histogram for the price column.
+How many steps are used to represent the distribution of values for this column?  What is the maximum number of steps that could have been generated?
+150 steps are now used.  The maximum number would be the number of steps requested times the histogram tuning factor, in this case, 20 times 20 or  400.
+Are any frequency count cells generated?
+Yes.  There are 75 individual frequency count cells.  
+Notice the Range Cell Density.  It’s value is set to 0.  Why is this?
+Because all cells are frequency count cells, the range cell density is set to zero.
+Are the statistics generated with the histogram tuning factor more accurate?
+Yes, using the histogram tuning factor made the statistics more accurate and will present the optimizer with a clearer picture of what the data looks like.
+
+
+
+	
+
+8.	In Window A, drop the test_htf table using drop table
+
+drop table test_htf
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+9. With the histogram tuning factor now set to 20, return to the original query and evaluate the difference in the optimizer’s picture of the table
+a. In window A update the statistics on col1 of the table tune_stats_table
+
+	update statistics tune_stats_table(col1)
+
+b. Turn on the tracing commands
+
+dbcc traceon(3604)
+set option show_lio_costing on
+c. Re-execute the query from Step 6, part b, examine the trace flag output, and fill in the following chart.
+
+select count(*) RESULT
+from tune_stats_table
+where col1 = 5000
+
+RESULT      
+----------- 
+201         
+
+
+Beginning selection of qualifying indexes for table 'tune_stats_table',
+
+Estimating selectivity of index 'tune_stats_table.idx1', indid 2
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.01970588,
+    scan selectivity 0.01970588, filter selectivity 0.01970588
+    201 rows, 1.142941 pages
+    Index covers query.
+    Data Row Cluster Ratio 0.999798
+    Index Page Cluster Ratio 0.98
+    Data Page Cluster Ratio 0.9924242
+    using no index prefetch (size 2K I/O)
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity for table 'tune_stats_table'
+    Table scan cost is 10200 rows, 300 pages,
+
+The table (Allpages) has 10200 rows, 300 pages,
+Data Page Cluster Ratio 0.9999900
+    col1 = 5000
+    Estimated selectivity for col1,
+        selectivity = 0.01970588,
+    Search argument selectivity is 0.01970588.
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 138.2594 ):
+	lio=2.142941 pio=2.142941 cpu=804
+
+
+ScenarioOptimizer Estimated SelectivityOptimizer Estimated Number of RowsActual Number of RowsNo index on original data0.110001Created index on original data0.000111Inserted 200 rows col1 = 5000
+Statistics not updated0.00011201Updated statistics0.00048442911201Updated statistics (with htf)0.01970588201201
+
+
+Has the optimizer made an accurate estimate based on the updated statistics? Explain.
+Yes. the estimate is equal the actual value of 201.
+How did the histogram tuning factor assist the optimizer?
+The higher number of steps allowed my histogram tuning factor gave the optimizer more accurate statistics to use.
+NOTE:  You may examine the statistics by using the optdiag command.
+
+d. In window A, Disable the tracing commands
+
+	dbcc traceoff(3604)
+	set option show_lio_costing off
+Task 2: Creating Column Statistics on Minor Index Attributes 
+Procedure
+1.	Create a table with no indexes and no column statistics.
+a.	In Window A, create a copy of the titles table in the pubtune_db database as follows:
+
+select * into test_titles from titles
+
+(5000 rows affected)
+
+
+    
+You can begin this section (2) of the lab again at any time by simply dropping the table test_titles and returning to step 1.
+
+b.	Verify that the table named test_titles has no indexes.
+
+sp_helpindex test_titles
+
+Object does not have any indexes.
+(return status = 1)
+
+c.	In Window B, verify that Adaptive Server is not storing any column statistics for the table test_titles by using optdiag.
+
+optdiag statistics pubtune_db..test_titles -Usa -P
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "test_titles"
+Specified column:                       not specified
+
+Table owner:                            "dbo"
+Table name:                             "test_titles"
+
+Statistics for table:                   "test_titles"
+
+     Data page count:                   623
+     Empty data page count:             0
+     Data row count:                    5000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                78.0000000000000000
+     OAM + allocation page count:       4
+     First extent data pages:           0
+     Data row size:                     184.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 7
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.7325027389232847
+     Large I/O efficiency:              1.0000000000000000
+
+No statistics for remaining columns:    "advance"
+(default values used)                   "contract"
+                                        "notes"
+                                        "price"
+                                        "pub_id"
+                                        "pubdate"
+                                        "title"
+                                        "title_id"
+                                        "total_sales"
+                                        "type"
+
+Optdiag succeeded.
+
+2.	Verify that Adaptive Server performs a table scan, as expected, for any query against a table with no indexes.
+a.	In Window A, activate the showplan and noexec diagnostic commands.
+
+set showplan, noexec on
+
+
+b.	Execute the following query and verify that Adaptive Server performs a table scan.
+
+select title, price, advance
+from test_titles
+where price between 20 and 100
+and advance > 18000
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  test_titles
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+3.	Determine whether an index will improve performance for the query.
+a.	In Window B, create a composite index on the price and advance columns of the test_titles table. - You will have to log into the Server as the sa user and use the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+
+    Make sure the price column is the leading column for the index.
+create index idx1 on test_titles(price, advance)
+
+b.	Continuing in Window B, exit from isql and verify that Adaptive Server is now storing index and column statistics for the table test_titles by using optdiag.
+
+exit
+
+optdiag statistics pubtune_db..test_titles -Usa -P
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "test_titles"
+Specified column:                       not specified
+
+Table owner:                            "dbo"
+Table name:                             "test_titles"
+
+Statistics for table:                   "test_titles"
+
+     Data page count:                   623
+     Empty data page count:             0
+     Data row count:                    5000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                78.0000000000000000
+     OAM + allocation page count:       4
+     First extent data pages:           0
+     Data row size:                     184.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 7
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.7325027389232847
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for index:                   "idx1" (nonclustered)
+Index column list:                      "price", "advance"
+     Leaf count:                        73
+     Empty leaf page count:             0
+     Data page CR count:                4497.0000000000000000
+     Index page CR count:               10.0000000000000000
+     Data row CR count:                 4891.0000000000000000
+     First extent leaf pages:           0
+     Leaf row size:                     29.0000000000000000
+     Index height:                      2
+
+  Derived statistics:                   
+     Data page cluster ratio:           0.0818616247662581
+     Index page cluster ratio:          1.0000000000000000
+     Data row cluster ratio:            0.0249029015307288
+     Space utilization:                 0.9852685366383996
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for column:                  "price"
+Last update of column statistics:       Feb 22 2009  8:13:51:186PM
+
+     Range cell density:                0.0000000000000000
+     Total density:                     0.0134830400000000
+     Range selectivity:                 default used (0.33)
+     In between selectivity:            default used (0.25)
+     Unique range values:               0.0000000000000000
+     Unique total values:               0.0133333333333333
+     Average column width:              8.0000000000000000
+
+Histogram for column:                   "price"
+Column datatype:                        money
+Requested step count:                   20
+Actual step count:                      150
+Sampling Percent:                       0
+Out of range Histogram Adjustment is DEFAULT.
+
+     Step     Weight                    Value
+
+        1     0.00000000        <       1.95
+        2     0.01280000        =       1.95
+        3     0.00000000        <       2.95
+        4     0.01120000        =       2.95
+        5     0.00000000        <       3.95
+        6     0.01240000        =       3.95
+        7     0.00000000        <       4.95
+        8     0.01220000        =       4.95
+        9     0.00000000        <       5.95
+       10     0.01360000        =       5.95
+       11     0.00000000        <       6.95
+       12     0.01520000        =       6.95
+       13     0.00000000        <       7.95
+       14     0.01400000        =       7.95
+       15     0.00000000        <       8.95
+       16     0.01200000        =       8.95
+       17     0.00000000        <       9.95
+       18     0.01240000        =       9.95
+       19     0.00000000        <       10.95
+       20     0.01440000        =       10.95
+       21     0.00000000        <       11.95
+       22     0.01200000        =       11.95
+       23     0.00000000        <       12.95
+       24     0.01260000        =       12.95
+       25     0.00000000        <       13.95
+       26     0.01200000        =       13.95
+       27     0.00000000        <       14.95
+       28     0.01320000        =       14.95
+       29     0.00000000        <       15.95
+       30     0.01360000        =       15.95
+       31     0.00000000        <       16.95
+       32     0.01120000        =       16.95
+       33     0.00000000        <       17.95
+       34     0.01540000        =       17.95
+       35     0.00000000        <       18.95
+       36     0.01280000        =       18.95
+       37     0.00000000        <       19.95
+       38     0.01160000        =       19.95
+       39     0.00000000        <       21.95
+       40     0.01300000        =       21.95
+       41     0.00000000        <       22.95
+       42     0.01420000        =       22.95
+       43     0.00000000        <       23.95
+       44     0.01120000        =       23.95
+       45     0.00000000        <       24.95
+       46     0.01340000        =       24.95
+       47     0.00000000        <       25.95
+       48     0.01400000        =       25.95
+       49     0.00000000        <       26.95
+       50     0.01320000        =       26.95
+       51     0.00000000        <       27.95
+       52     0.01220000        =       27.95
+       53     0.00000000        <       28.95
+       54     0.01460000        =       28.95
+       55     0.00000000        <       29.95
+       56     0.01420000        =       29.95
+       57     0.00000000        <       30.95
+       58     0.01500000        =       30.95
+       59     0.00000000        <       31.95
+       60     0.01240000        =       31.95
+       61     0.00000000        <       32.95
+       62     0.01500000        =       32.95
+       63     0.00000000        <       33.95
+       64     0.01180000        =       33.95
+       65     0.00000000        <       34.95
+       66     0.01680000        =       34.95
+       67     0.00000000        <       35.95
+       68     0.01400000        =       35.95
+       69     0.00000000        <       36.95
+       70     0.01340000        =       36.95
+       71     0.00000000        <       38.95
+       72     0.01320000        =       38.95
+       73     0.00000000        <       39.95
+       74     0.01180000        =       39.95
+       75     0.00000000        <       40.95
+       76     0.01460000        =       40.95
+       77     0.00000000        <       41.95
+       78     0.01520000        =       41.95
+       79     0.00000000        <       42.95
+       80     0.01460000        =       42.95
+       81     0.00000000        <       43.95
+       82     0.01220000        =       43.95
+       83     0.00000000        <       44.95
+       84     0.01120000        =       44.95
+       85     0.00000000        <       45.95
+       86     0.01380000        =       45.95
+       87     0.00000000        <       46.95
+       88     0.01440000        =       46.95
+       89     0.00000000        <       47.95
+       90     0.01240000        =       47.95
+       91     0.00000000        <       48.95
+       92     0.01260000        =       48.95
+       93     0.00000000        <       49.95
+       94     0.01440000        =       49.95
+       95     0.00000000        <       50.95
+       96     0.01400000        =       50.95
+       97     0.00000000        <       51.95
+       98     0.01520000        =       51.95
+       99     0.00000000        <       52.95
+      100     0.01360000        =       52.95
+      101     0.00000000        <       53.95
+      102     0.01380000        =       53.95
+      103     0.00000000        <       54.95
+      104     0.01260000        =       54.95
+      105     0.00000000        <       55.95
+      106     0.01160000        =       55.95
+      107     0.00000000        <       56.95
+      108     0.01200000        =       56.95
+      109     0.00000000        <       57.95
+      110     0.01240000        =       57.95
+      111     0.00000000        <       58.95
+      112     0.01400000        =       58.95
+      113     0.00000000        <       59.95
+      114     0.01280000        =       59.95
+      115     0.00000000        <       60.95
+      116     0.01380000        =       60.95
+      117     0.00000000        <       62.95
+      118     0.01180000        =       62.95
+      119     0.00000000        <       63.95
+      120     0.01480000        =       63.95
+      121     0.00000000        <       64.95
+      122     0.01180000        =       64.95
+      123     0.00000000        <       65.95
+      124     0.01420000        =       65.95
+      125     0.00000000        <       66.95
+      126     0.01540000        =       66.95
+      127     0.00000000        <       67.95
+      128     0.01100000        =       67.95
+      129     0.00000000        <       68.95
+      130     0.01480000        =       68.95
+      131     0.00000000        <       69.95
+      132     0.01480000        =       69.95
+      133     0.00000000        <       70.95
+      134     0.01380000        =       70.95
+      135     0.00000000        <       71.95
+      136     0.01260000        =       71.95
+      137     0.00000000        <       72.95
+      138     0.01160000        =       72.95
+      139     0.00000000        <       73.95
+      140     0.01340000        =       73.95
+      141     0.00000000        <       74.95
+      142     0.01780000        =       74.95
+      143     0.00000000        <       75.95
+      144     0.01460000        =       75.95
+      145     0.00000000        <       201.95
+      146     0.01080000        =       201.95
+      147     0.00000000        <       1000.00
+      148     0.01520000        =       1000.00
+      149     0.00000000        <       1010.00
+      150     0.01240000        =       1010.00
+
+Statistics for column group:            "price", "advance"
+Last update of column statistics:       Feb 22 2009  8:13:51:186PM
+
+     Range cell density:                0.0000000000000000
+     Total density:                     0.0025921600000000
+     Range selectivity:                 default used (0.33)
+     In between selectivity:            default used (0.25)
+     Unique range values:               0.0000000000000000
+     Unique total values:               0.0013404825737265
+     Average column width:              8.0000000000000000
+
+No statistics for remaining columns:    "advance"
+(default values used)                   "contract"
+                                        "notes"
+                                        "pub_id"
+                                        "pubdate"
+                                        "title"
+                                        "title_id"
+                                        "total_sales"
+                                        "type"
+
+Optdiag succeeded.
+
+
+A table has an index if optdiag reports index statistics. Does the test_titles table have an index?
+Yes. optdiag is reporting index statistics for a nonclustered index named idx1 on the price and advance columns.
+Are there column statistics (histogram steps) for the leading column of the index, price?
+Yes.
+Are there column statistics (histogram steps) for the non-leading column of the index, advance?
+No.
+c.	In Window A, where showplan and noexec are activated, execute the following query again and examine the access method.
+
+select title, price, advance
+from test_titles
+where price between 20 and 100
+and advance > 18000
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  test_titles
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    price ASC
+       |   |    advance ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Does the presence of the index on the price column improve the access method for the query? Explain.
+Yes, The query optimizer for ASE 15.0 is intelligent enough to be able to use the index even though there is not a complete set of statistics on the index.
+
+d.	In Window A, where showplan and noexec are activated, execute the following query and examine the access method.
+
+select title, price, advance
+from test_titles
+where advance > 18000
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  test_titles
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.  
+
+
+
+Does the presence of the index on the advance column improve the access method for the query? Explain.
+No.  Because there are no statistics on the column, the optimizer determines that a table scan is the best access method for the query.     
+e.	In Window B, execute the following command to create statistics on the advance column
+
+update statistics test_titles(advance)
+
+f.	In Window B, examine the newly created statistics by running the following comamand 
+
+opdiag statistics pubtune_db..test_titles.advance –Usa –P 
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "test_titles"
+Specified column:                       not specified
+
+Table owner:                            "dbo"
+Table name:                             "test_titles"
+
+Statistics for table:                   "test_titles"
+
+     Data page count:                   623
+     Empty data page count:             0
+     Data row count:                    5000.0000000000000000
+     Forwarded row count:               0.0000000000000000
+     Deleted row count:                 0.0000000000000000
+     Data page CR count:                78.0000000000000000
+     OAM + allocation page count:       4
+     First extent data pages:           0
+     Data row size:                     184.0000000000000000
+     Parallel join degree:              0.0000000000000000
+     Unused page count:                 7
+     OAM page count:                    1
+
+  Derived statistics:                   
+     Data page cluster ratio:           1.0000000000000000
+     Space utilization:                 0.7325027389232847
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for index:                   "idx1" (nonclustered)
+Index column list:                      "price", "advance"
+     Leaf count:                        73
+     Empty leaf page count:             0
+     Data page CR count:                4497.0000000000000000
+     Index page CR count:               10.0000000000000000
+     Data row CR count:                 4891.0000000000000000
+     First extent leaf pages:           0
+     Leaf row size:                     29.0000000000000000
+     Index height:                      2
+
+  Derived statistics:                   
+     Data page cluster ratio:           0.0818616247662581
+     Index page cluster ratio:          1.0000000000000000
+     Data row cluster ratio:            0.0249029015307288
+     Space utilization:                 0.9852685366383996
+     Large I/O efficiency:              1.0000000000000000
+
+Statistics for column:                  "advance"
+Last update of column statistics:       Feb 22 2009  8:16:32:200PM
+
+     Range cell density:                0.0000000000000000
+     Total density:                     0.1806151200000000
+     Range selectivity:                 default used (0.33)
+     In between selectivity:            default used (0.25)
+     Unique range values:               0.0000000000000000
+     Unique total values:               0.1000000000000000
+     Average column width:              8.0000000000000000
+
+Histogram for column:                   "advance"
+Column datatype:                        money
+Requested step count:                   20
+Actual step count:                      20
+Sampling Percent:                       0
+Out of range Histogram Adjustment is DEFAULT.
+
+     Step     Weight                    Value
+
+        1     0.00000000        <       0.00
+        2     0.36899999        =       0.00
+        3     0.00000000        <       1000.00
+        4     0.07100000        =       1000.00
+        5     0.00000000        <       2000.00
+        6     0.06580000        =       2000.00
+        7     0.00000000        <       3000.00
+        8     0.06400000        =       3000.00
+        9     0.00000000        <       4000.00
+       10     0.06900000        =       4000.00
+       11     0.00000000        <       5000.00
+       12     0.07000000        =       5000.00
+       13     0.00000000        <       7500.00
+       14     0.07080000        =       7500.00
+       15     0.00000000        <       10000.00
+       16     0.06580000        =       10000.00
+       17     0.00000000        <       15000.00
+       18     0.08140000        =       15000.00
+       19     0.00000000        <       20000.00
+       20     0.07320000        =       20000.00
+
+Optdiag succeeded. 
+g.	In Window A, where showplan and noexec are activated, execute the following query again and examine the access method.
+
+select title, price, advance
+from test_titles
+where advance > 18000
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  test_titles
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning at index start.
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.       
+
+
+Does the presence of the statistics on the advance column improve the access method for the query? Explain.
+Yes.  With the statistics the optimizer choses to do a non-clustered leaf level index scan based on the estimated qualifying rows being approximately 7%.
+4.	In Window A, exit from the isql session.
+
+	exit
+
+Task 3: Creating and Using Simulated Statistics 
+Procedure
+
+1.	Examine various server and table characteristics.
+a.	Connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Display the configuration variables related to parallel access by using
+sp_configure "max parallel" and sp_configure "number of worker"
+
+exec sp_configure "max parallel degree"
+
+
+ Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type
+ ------------------------------ ----------- ----------- ------------ ------------ -------------------- ----------
+ max parallel degree                      1           0            1            1 number               dynamic
+
+(1 row affected)
+(return status = 0)
+
+
+Is the server configured for parallel access? Explain.
+No.  The max parallel degree parameter must be configured to a value greater than 1.	
+c.	Determine whether the table named titles_idpr has any indexes.
+
+sp_helpindex titles_idpr
+
+
+Object has the following indexes
+ 
+
+
+index_name index_keys index_description index_max_rows_per_page index_fillfactor index_reservepagegap index_created       index_local  
+---------- ---------- ----------------- ----------------------- ---------------- -------------------- ------------------- ------------ 
+idx1        title_id  clustered, unique                       0                0                    0 Apr 13 2008  3:15AM Global Index 
+idx2        price     nonclustered                            0                0                    0 Apr 13 2008  3:15AM Global Index 
+
+
+index_ptn_name index_ptn_seg 
+-------------- ------------- 
+idx1_569050032 default       
+idx2_569050032 default
+
+
+Describe the indexes for the titles_idpr table.
+There is a clustered index on the title_id column and a nonclustered index on the price column.
+
+2.	Analyze optimizer cost estimates and access methods for various queries.
+a.	Activate trace flag 3604 by using dbcc traceon and set option show_lio_costing
+
+
+   
+set option show_lio_costing is used to examine index cost calculations used by the optimizer.
+
+set option show_best_plan is used to show the details of the best query plan selected by the optimizer.
+dbcc traceon(3604)
+   set option show_lio_costing on
+   set option show_best_plan long
+
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+
+b.	Activate the Adaptive Server diagnostics commands showplan and noexec. 
+
+set showplan, noexec on
+
+
+c.	Execute the following query and observe optimizer cost estimates and showplan access.
+
+select title, advance
+from titles_idpr
+where price > $10
+
+Beginning selection of qualifying indexes for table 'titles_idpr',
+
+Estimating selectivity of index 'titles_idpr.idx1', indid 1
+    Clustered Index Data Row Filtering Predicates 
+    price > 10.00
+    Estimated selectivity for price,
+        selectivity = 0.883558,
+    scan selectivity 1, filter selectivity 0.883558
+    5000 rows, 621 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_idpr.idx2', indid 2
+    price > 10.00
+    Estimated selectivity for price,
+        selectivity = 0.883558,
+    scan selectivity 0.883558, filter selectivity 0.883558
+    4417.79 rows, 44.1779 pages
+    Data Row Cluster Ratio 0.05275177
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.2033682
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx2' on table 'titles_idpr' = 4213.688
+The best global plan (Pop tree) :
+
+FINAL PLAN ( total cost = 18154.56 ):
+	lio=623 pio=621 cpu=13835.58
+( PopEmit 
+	proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+	pred: [Tc{} Pe{}]
+	subs: {}
+	cost: 18154.56 
+	I/O estimate : [
+		rowcount=4417.79
+		averagewidth=64.17186
+		pages=1
+		lio=0 pio=0 cpu=0
+		total lio=623 total pio=621 total cpu=13835.58
+	]
+	Cache Strategy: [
+		prefetch=YES
+		iosize=2048 Bytes
+		bufreplace=LRU
+	]
+	order: none 
+	( PopIndScan index: Gti0( idx1 ) 
+			table: Gtt0( titles_idpr ) 
+		
+		proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+		pred: [Tc{} Pe{{ titles_idpr.price }  > 10.00}]
+		subs: {titles_idpr.price ,titles_idpr.advance ,titles_idpr.title }
+		cost: 18154.56 
+		I/O estimate : [
+			rowcount=4417.79
+			averagewidth=64.17186
+			pages=621
+			lio=623 pio=621 cpu=13835.58
+			scanlio=623 scanpio=621 scancpu=13835.58
+		]
+		Cache Strategy: [
+			prefetch=YES
+			iosize=2048 Bytes
+			bufreplace=LRU
+		]
+		order: none )
+)
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_idpr
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+The titles_idpr table uses the Allpages locking scheme. Therefore the leaf level of index “idx1”, the clustered index on title_id, is the data pages.
+How many rows does the table have?
+	5000
+How many data pages does the table have?
+	621
+Based on the SARG and the table properties, what access method does the showplan output indicate?
+	The showplan output indicates a table scan in serial.
+According to set option show_lio_costing, what is the LIO costing for a table scan or index “idx2” (the nonclustered index on price)?
+The table scan costs 623 pages while the index costs 4214 pages.
+What is the estimated rowcount affected by the query?
+4418
+What is the final plan cost for the query?
+18154.6
+
+
+d.	Execute the following new query, observe optimizer cost estimates and showplan access, and complete the following chart.
+
+select title, advance
+from titles_idpr
+where price > $50
+
+
+Beginning selection of qualifying indexes for table 'titles_idpr',
+
+Estimating selectivity of index 'titles_idpr.idx1', indid 1
+    Clustered Index Data Row Filtering Predicates 
+    price > 50.00
+    Estimated selectivity for price,
+        selectivity = 0.3758925,
+    scan selectivity 1, filter selectivity 0.3758925
+    5000 rows, 621 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_idpr.idx2', indid 2
+    price > 50.00
+    Estimated selectivity for price,
+        selectivity = 0.3758925,
+    scan selectivity 0.3758925, filter selectivity 0.3758925
+    1879.462 rows, 18.79462 pages
+    Data Row Cluster Ratio 0.05275177
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.2033682
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx2' on table 'titles_idpr' = 1792.631
+The best global plan (Pop tree) :
+
+FINAL PLAN ( total cost = 17646.89 ):
+	lio=623 pio=621 cpu=8758.925
+( PopEmit 
+	proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+	pred: [Tc{} Pe{}]
+	subs: {}
+	cost: 17646.89 
+	I/O estimate : [
+		rowcount=1879.462
+		averagewidth=64.17186
+		pages=1
+		lio=0 pio=0 cpu=0
+		total lio=623 total pio=621 total cpu=8758.925
+	]
+	Cache Strategy: [
+		prefetch=YES
+		iosize=2048 Bytes
+		bufreplace=LRU
+	]
+	order: none 
+	( PopIndScan index: Gti0( idx1 ) 
+			table: Gtt0( titles_idpr ) 
+		
+		proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+		pred: [Tc{} Pe{{ titles_idpr.price }  > 50.00}]
+		subs: {titles_idpr.price ,titles_idpr.advance ,titles_idpr.title }
+		cost: 17646.89 
+		I/O estimate : [
+			rowcount=1879.462
+			averagewidth=64.17186
+			pages=621
+			lio=623 pio=621 cpu=8758.925
+			scanlio=623 scanpio=621 scancpu=8758.925
+		]
+		Cache Strategy: [
+			prefetch=YES
+			iosize=2048 Bytes
+			bufreplace=LRU
+		]
+		order: none )
+)
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_idpr
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+SARGEstimated RowcountFinal Plan CostAccess MethodProcessing Mode> $10
+(original statistics)441818154.6Table Scan
+Serial> $50
+(original statistics)188017646.9Table Scan
+Serial
+
+
+
+Parallel access was not used primarily because the server is not configured for parallel access.
+Therefore, if you want to test the effects of enabling parallelism on these queries, do you have to physically configure parallel access, or can simulated statistics be used?
+This is a classic example of being able to use simulated statistics to test this type of “what if?” scenario!
+You do not need to physically configure for parallel access; the optimizer needs only to “think” that parallel access is enabled.3.	Create, edit, and load simulated statistics.
+a.	In Window B, access the operating system prompt and change the directory to
+$HOME/ptquery15.
+
+cd $HOME/ptquery15
+
+b.	Capture simulated statistics for the titles_idpr table in the pubtune_db database into a file named simulated.stats by using the optdiag command.
+
+optdiag simulate statistics pubtune_db..titles_idpr -Usa -P -o simulated.stats
+
+c.	Edit the captured simulated statistics in the file named simulated.stats by using any available text editor such as vi and make the following changes:
+
+
+• 	Change (simulated) number of worker processes to 5.
+• 	Change (simulated) max parallel degree to 4.
+
+OptDiag/15.0.2/EBF 15389 ESD#3/P/NT (IX86)/Windows 2000/ase1502/2527/32-bit/OPT/Tue Mar 11 07:45:35 2008
+Adaptive Server Enterprise/15.0.2/EBF 15388 ESD#3/P/Linux Intel/Linux 2.4.21-47.ELsmp i686/ase1502/2527/32-bit/FBO/Tue Mar 11 11:19:44 2008
+
+Server name:                            "CHI102_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "titles_idpr"
+Specified column:                       not specified
+
+
+Configuration Parameters:
+
+     Number of worker processes:    5 (simulated)
+#    Number of worker processes:        0 (actual)
+     Max parallel degree:           4 (simulated)
+#    Max parallel degree:               1 (actual)
+
+(the rest of the file is not shown here)
+
+d.	Save the edited simulated statistics file, simulated.stats, and load it back into Adaptive Server by using the optdiag command.
+
+optdiag simulate statistics pubtune_db..titles_idpr -Usa -P -i simulated.stats
+
+(…header deleted…)
+
+Server name:                            "CHI102_2K"
+Server Message: CHI102_2K - Msg 0, Level 10, State 1:
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Server Message: CHI102_2K - Msg 0, Level 10, State 1:
+Changing the value of 'allow updates to system tables' does not increase the amount of memory Adaptive Server uses.
+Server Message: CHI102_2K - Msg 0, Level 10, State 1:
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Server Message: CHI102_2K - Msg 0, Level 10, State 1:
+Changing the value of 'allow updates to system tables' does not increase the amount of memory Adaptive Server uses.
+
+Optdiag succeeded.
+
+
+4.	Begin a new client session with Adaptive Server.
+a.	Continuing in Window B, connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Verify that the server is not actually configured for parallel access by checking the configuration variables related to parallel access by using
+sp_configure "max parallel"
+
+exec sp_configure "max parallel degree"
+
+
+ Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type
+ ------------------------------ ----------- ----------- ------------ ------------ -------------------- ----------
+ max parallel degree                      1           0            1            1 number               dynamic
+
+                                                            
+5.	Use simulated statistics.
+a.	Continuing in Window B, enable simulate mode by using the set command
+
+set statistics simulate on
+
+b.	Activate trace flag 3604 by using dbcc traceon and set option show_lio_costing as well as set option show_best_plan
+
+dbcc traceon(3604)
+   set option show_lio_costing on
+   set option show_best_plan long
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+
+c.	Activate the Adaptive Server diagnostics commands showplan and noexec. 
+
+set showplan, noexec on
+
+d.	Now that the simulated statistics for titles_idpr table will take into account parallelism, ensure that the query is executed to highly consider it, using the parallel clause.  Execute the original 1st query (from step 2c) as follows and observe optimizer cost estimates and showplan access.
+
+select title, advance
+from titles_idpr (parallel 4)
+where price > $10
+
+Beginning selection of qualifying indexes for table 'titles_idpr',
+
+Estimating selectivity of index 'titles_idpr.idx1', indid 1
+    Clustered Index Data Row Filtering Predicates 
+    price > 10.00
+    Statistics for this column have been edited.
+    Estimated selectivity for price,
+        selectivity = 0.883558,
+    scan selectivity 1, filter selectivity 0.883558
+    5000 rows, 621 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_idpr.idx2', indid 2
+    price > 10.00
+    Statistics for this column have been edited.
+    Estimated selectivity for price,
+        selectivity = 0.883558,
+    scan selectivity 0.883558, filter selectivity 0.883558
+    4417.79 rows, 44.1779 pages
+    Data Row Cluster Ratio 0.05275177
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.2033682
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx2' on table 'titles_idpr' = 4213.688
+The best global plan (Pop tree) :
+
+PARALLEL:
+        number of worker processes = 5
+        max parallel degree = 4
+        min(configured,set) parallel degree = 4
+        min(configured,set) hash scan parallel degree = 1
+        max repartition degree = 1
+        resource granularity (percentage) = 10
+
+
+FINAL PLAN ( total cost = 18154.56 ):
+	lio=623 pio=621 cpu=13835.58
+( PopEmit 
+	proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+	pred: [Tc{} Pe{}]
+	subs: {}
+	cost: 18154.56 
+	I/O estimate : [
+		rowcount=4417.79
+		averagewidth=64.17186
+		pages=1
+		lio=0 pio=0 cpu=0
+		total lio=623 total pio=621 total cpu=13835.58
+	]
+	Cache Strategy: [
+		prefetch=YES
+		iosize=2048 Bytes
+		bufreplace=LRU
+	]
+	order: none 
+	( PopIndScan index: Gti0( idx1 ) 
+			table: Gtt0( titles_idpr ) 
+		
+		proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+		pred: [Tc{} Pe{{ titles_idpr.price }  > 10.00}]
+		subs: {titles_idpr.price ,titles_idpr.advance ,titles_idpr.title }
+		cost: 18154.56 
+		I/O estimate : [
+			rowcount=4417.79
+			averagewidth=64.17186
+			pages=621
+			lio=623 pio=621 cpu=13835.58
+			scanlio=623 scanpio=621 scancpu=13835.58
+		]
+		Cache Strategy: [
+			prefetch=YES
+			iosize=2048 Bytes
+			bufreplace=LRU
+		]
+		order: none )
+)
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 4 worker processes.
+Optimized using simulated statistics.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way hash scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Previously, in step 2c, the optimizer chose a table scan for this query.
+What is the estimated rowcount affected by the query?
+4418
+What is the final plan cost for the query?  Is it higher or lower than previously recorded?  Why?
+18154.6. 
+The final plan cost is the same.  
+The parallelism makes no differencce.
+What access method does the showplan output indicate?  Did simulating parallelism have any effect on this query?
+As before, the showplan output still indicates a table scan. Simulating parallelism did cause the optimizer to use a 4-way hash-based scan.  Note that this is the ONLY way a hash based scan will ever be chosen.
+Does set option show_lio_costing and set showplan output indicate that the simulated statistics have been used? Explain.
+Yes.
+For show_lio_costing, notice the line of output that reads:
+
+  " Statistics for this column have been edited."
+For showplan, notice the line of output that reads:
+
+   Optimized using simulated statistics
+
+
+
+e.	Execute the original 2nd query (from step 2d) as follows, observe optimizer cost estimates and showplan access, and complete the following chart.
+
+select title, advance
+from titles_idpr (parallel 4)
+where price > $50
+
+
+
+
+Beginning selection of qualifying indexes for table 'titles_idpr',
+
+Estimating selectivity of index 'titles_idpr.idx1', indid 1
+    Clustered Index Data Row Filtering Predicates 
+    price > 50.00
+    Statistics for this column have been edited.
+    Estimated selectivity for price,
+        selectivity = 0.3758925,
+    scan selectivity 1, filter selectivity 0.3758925
+    5000 rows, 621 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_idpr.idx2', indid 2
+    price > 50.00
+    Statistics for this column have been edited.
+    Estimated selectivity for price,
+        selectivity = 0.3758925,
+    scan selectivity 0.3758925, filter selectivity 0.3758925
+    1879.462 rows, 18.79462 pages
+    Data Row Cluster Ratio 0.05275177
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.2033682
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx2' on table 'titles_idpr' = 1792.631
+The best global plan (Pop tree) :
+
+PARALLEL:
+        number of worker processes = 5
+        max parallel degree = 4
+        min(configured,set) parallel degree = 4
+        min(configured,set) hash scan parallel degree = 1
+        max repartition degree = 1
+        resource granularity (percentage) = 10
+
+
+FINAL PLAN ( total cost = 17646.89 ):
+	lio=623 pio=621 cpu=8758.925
+( PopEmit 
+	proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+	pred: [Tc{} Pe{}]
+	subs: {}
+	cost: 17646.89 
+	I/O estimate : [
+		rowcount=1879.462
+		averagewidth=64.17186
+		pages=1
+		lio=0 pio=0 cpu=0
+		total lio=623 total pio=621 total cpu=8758.925
+	]
+	Cache Strategy: [
+		prefetch=YES
+		iosize=2048 Bytes
+		bufreplace=LRU
+	]
+	order: none 
+	( PopIndScan index: Gti0( idx1 ) 
+			table: Gtt0( titles_idpr ) 
+		
+		proj: {{ titles_idpr.advance } ,{ titles_idpr.title } }
+		pred: [Tc{} Pe{{ titles_idpr.price }  > 50.00}]
+		subs: {titles_idpr.price ,titles_idpr.advance ,titles_idpr.title }
+		cost: 17646.89 
+		I/O estimate : [
+			rowcount=1879.462
+			averagewidth=64.17186
+			pages=621
+			lio=623 pio=621 cpu=8758.925
+			scanlio=623 scanpio=621 scancpu=8758.925
+		]
+		Cache Strategy: [
+			prefetch=YES
+			iosize=2048 Bytes
+			bufreplace=LRU
+		]
+		order: none )
+)
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+Optimized using the forced options (internally generated Abstract Plan).
+    Executed in parallel by coordinating process and 4 worker processes.
+Optimized using simulated statistics.
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |EXCHANGE Operator (VA = 2) (Merged)
+       |   |Executed in parallel by 4 Producer and 1 Consumer processes.
+
+       |   |
+       |   |   |EXCHANGE:EMIT Operator (VA = 1)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Executed in parallel with a 4-way hash scan.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+SARGEstimated RowcountFinal Plan CostAccess MethodProcessing Mode> $10
+(original statistics)441818154.6Table Scan
+Serial> $50
+(original statistics)188017646.9Table Scan
+Serial> $10
+(simulated statistics)441818154.6Table Scan
+Parallel
+Hash Scan> $50
+(simulated statistics)188017646.9Table Scan
+Parallel
+Hash Scan
+
+
+
+
+Previously, in step 2d, the optimizer chose a table scan for this query.
+What is the estimated rowcount affected by the query?
+1880
+What is the final plan cost for this query?  Is it higher or lower than the plan cost for the query with SARG of “price > $10” and using simulated statistics?  Why? 
+17646.9. 
+Since the estimated rowcount is less than that of the query with SARG ‘price > $10’ (and using simulated statistics), the final plan cost is also expected to be lower.  
+What access method does the showplan output indicate?  Did simulating parallelism have any effect on this query?
+As before, the showplan output still indicates a table scan. Simulating parallelism did cause the optimizer to use a 4-way hash-based scan.
+In summary, can you conclude that by simulating statistics for one particular query that you will get the same effect for another, similar query?
+No. As you just demonstrated, you need to simulate statistics for your specific applications. Similar queries can produce different results.
+
+
+6.	Remove simulated statistics.
+a.	Returning to Window A, exit your current Adaptive Server client session and connect again as the sa.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Remove the shared simulated statistics and exit your ASE session.
+
+delete shared statistics
+
+
+exit
+
+c.	In Window B, exit your current Adaptive Server client session, access the operating system prompt, and change the directory to $HOME/ptquery15.
+
+cd $HOME/ptquery15
+
+
+
+
+
+
+d.	Recapture simulated statistics for the titles_idpr table in the pubtune_db database into a new file named simulated.stats2 by using the optdiag command.
+
+optdiag simulate statistics pubtune_db..titles_idpr -Usa -P -o simulated.stats2
+
+e.	Examine the captured simulated statistics in the file named simulated.stats2 by using any available text editor such as vi and verify that the simulated values for parallelism have been turned off.
+
+(…header deleted…)
+
+Server name:                            "MAN103_2K"
+
+Specified database:                     "pubtune_db"
+Specified table owner:                  not specified
+Specified table:                        "titles_idpr"
+Specified column:                       not specified
+
+
+Configuration Parameters:
+
+     Number of worker processes:        0 (simulated)
+#    Number of worker processes:        0 (actual)
+     Max parallel degree:               1 (simulated)
+#    Max parallel degree:               1 (actual)
+         
+        
+       
+

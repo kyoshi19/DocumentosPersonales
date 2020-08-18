@@ -1,0 +1,802 @@
+Module 5: Index Structures
+
+Lab 5-1: Using Index Structures - Solution
+Lab Setup
+There is a setup required for this lab for tasks 3 and 4 that will be identified later in the lab steps. If you need to start this lab again at any time, the tables used in this lab can be refreshed by executing the UNIX shell script renew.sh located in your ptquery15 directory.
+Objectives
+After completing this lab, you should be able to:
+* Compare the performance of similar queries against similar tables that have different indexes.
+* Analyze index scan directions. 
+* Create and examine function-based indexes.
+* Create and examine local clustered and nonclustered indexes.
+
+Description
+In this lab, you will analyze the access methods and logical I/Os and observe matching and nonmatching covered queries. Also you will learn about the function based and local indexes.
+
+Task Outline 
+Task 1: Analyzing Access Methods and Logical I/Os
+Task 2: Observing Matching and Nonmatching Covered Queries
+Task 3: Creating and Using a Function Based Index
+Task 4: Examining Local Indexes
+
+Detailed Instructions and Solutions
+Task 1: Analyzing Access Methods and Logical I/Os 
+Description
+Note that in all measurements of physical I/O and elapsed time, your values may be different from those shown in the solutions. The differences arise due to varying system loads and the type of hardware used. Logical I/O counts are your best measure of performance.
+The first sets of queries are against the titles table and some of its variants. Each table uses the Allpages locking scheme and has the identical 5000 rows. The other characteristics of the tables are shown in the chart below.
+
+Table NameIndex Name on price ColumnType of Index on price ColumnNumber of Data PagestitlesNonen/a624titles_idpridx2Nonclustered621titles_pridtitlidx1Clustered650
+Procedure
+
+        
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.
+1.	Activate Adaptive Server diagnostic commands.
+a.	Connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Activate statistics io to capture logical and physical I/O activity.
+
+set statistics io on
+
+Total writes for this command: 0
+c.	Activate showplan to examine the optimizer output.
+
+set showplan on
+Total writes for this command: 0
+
+2.	Execute the following query three times.
+
+
+* Each time, substitute table_name with one of the table names from the previous chart: 
+n	titles
+n	titles_idpr
+n	titles_pridtitl
+* Fill in the following new chart.
+* The output heading will be blank if you omit "RESULT".
+
+select count(pub_id) "RESULT"
+from table_name
+where price between $200.00 and $300.00
+
+
+select count(pub_id) "RESULT" from titles
+where price between $200.00 and $300.00
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+RESULT
+ -----------
+          54
+
+
+Table: titles scan count 1, logical reads: (regular=650 apf=0 total=624),
+physical reads: (regular=0 apf=0 total=0), apf IOs used=0
+Total writes for this command: 0
+
+select count(pub_id) "RESULT" from titles_idpr 
+where price between $200.00 and $300.00
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Index : idx2
+       |   |   |  Forward Scan.
+       |   |   |  Positioning by key.
+       |   |   |  Keys are:
+       |   |   |    price ASC
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+RESULT
+ -----------
+          54
+
+
+Table: titles_idpr scan count 1, logical reads: (regular=55 apf=0 total=55),
+physical reads: (regular=31 apf=23 total=54), apf IOs used=23
+Total writes for this command: 0
+
+select count(pub_id)  "RESULT" from titles_pridtitl 
+where price between $200.00 and $300.00
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_pridtitl
+       |   |   |  Using Clustered Index.
+       |   |   |  Index : idx1
+       |   |   |  Forward Scan.
+       |   |   |  Positioning by key.
+       |   |   |  Keys are:
+       |   |   |    price ASC
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+RESULT
+ -----------
+          54
+
+Table: titles_pridtitl scan count 1, logical reads: (regular=18 apf=0 total=18),
+physical reads: (regular=0 apf=0 total=0), apf IOs used=0
+Total writes for this command: 0
+
+
+
+Table NameType of Index on priceQuery ResultAccess Method (Table Scan or Index)Logical I/OstitlesNone54Table scan624titles_idprNonclustered54Index55titles_pridtitlClustered54Index18
+
+Does each query return the same RESULT?
+Yes. The data is identical in all three tables and each returns a RESULT of 54. 
+Which table has the fewest logical I/Os to satisfy the query? Explain.
+The titles table has no indexes and had to be completely scanned – 624 I/Os.
+The titles_idpr table had fewer I/Os than the titles table scan because it has a nonclustered index that was used; the query was not covered so the qualifying index and data pages had to be accessed. The qualifying rows are randomly distributed in the table – 55 I/Os.
+The titles_pridtitl table had the fewest I/Os because it has a clustered index on the price column and was able to find all of the qualifying rows contiguous to each other on the data pages – 18 I/Os. Recall that all three tables use the Allpages locking scheme.
+For the next set of queries, use the same three tables and make a slight change to the select clause.
+3.	Execute the following query three times.
+
+
+* Each time, substitute table_name with one of the table names from the previous chart: 
+n	titles
+n	titles_idpr
+n	titles_pridtitl
+* Fill in the following new chart.
+* The output heading will be blank if you omit "RESULT".
+select avg(price) "RESULT"
+from table_name
+where price between $200.00 and $300.00
+
+select avg(price) "RESULT" from titles
+where price between $200.00 and $300.00
+
+
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |RESTRICT Operator (VA = 2)(0)(0)(0)(0)(5)
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles
+       |   |   |   |  Table Scan.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning at start of table.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+RESULT
+ ----------------------
+                 201.95
+
+Table: titles scan count 1, logical reads: (regular=624 apf=0 total=624),
+physical reads: (regular=0 apf=0 total=0), apf IOs used=0
+Total writes for this command: 0
+
+select avg(price) "RESULT" from titles_idpr
+where price between $200.00 and $300.00
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |RESTRICT Operator (VA = 2)(0)(0)(0)(0)(5)
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Index : idx2
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |   |  Keys are:
+       |   |   |   |    price ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+RESULT
+ ----------------------
+                 201.95
+
+
+Table: titles_idpr scan count 1, logical reads: (regular=2 apf=0 total=2),
+physical reads: (regular=0 apf=0 total=0), apf IOs used=0
+Total writes for this command: 0
+
+select avg(price) "RESULT" from titles_pridtitl
+where price between $200.00 and $300.00
+
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	3 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 3)
+       |
+       |   |RESTRICT Operator (VA = 2)(0)(0)(0)(0)(5)
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 1)
+       |   |   |  Evaluate Ungrouped COUNT AGGREGATE.
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_pridtitl
+       |   |   |   |  Using Clustered Index.
+       |   |   |   |  Index : idx1
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Keys are:
+       |   |   |   |    price ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+RESULT
+ ----------------------
+                 201.95
+
+
+Table: titles_pridtitl scan count 1, logical reads: (regular=18 apf=0 total=18),
+physical reads: (regular=0 apf=0 total=0), apf IOs used=0
+Total writes for this command: 0
+
+ 
+Table NameType of Index on priceAccess Method (Table Scan or Index)Logical I/OstitlesNoneTable scan624titles_idprNonclusteredCovered index2titles_pridtitlClusteredIndex to get to data pages – not covered by definition18
+
+
+Does each query return the same result?
+Yes. The data is identical in all three tables and each returns the same average price of $201.95. 
+Which table now has the fewest logical I/Os to satisfy the query? Explain.
+The titles table has no indexes and had to be completely scanned – 624 I/Os.
+The titles_idpr table had fewer I/Os than the titles table scan because it has a nonclustered index that was used; this time, the query was covered (on the price column), so only the two qualifying index pages had to be accessed. No data pages were read.
+The titles_pridtitl table had more I/Os than titles_idpr because it has a clustered index on the price column. By definition, a query cannot be covered if it uses a clustered index because the leaf level is the data level. Even though Adaptive Server was able to find all the qualifying rows contiguous to each other on the data pages, it had to read more pages than the covered query – 18 I/Os.
+The covered index on titles_idpr resulted in the fewest logical I/Os.
+
+Task 2: Observing Matching and Nonmatching Covered Queries 
+Description
+For the next set of queries, you will issue two covered queries and observe the difference between a matching and nonmatching covered query. The authors_idnames table has a nonclustered index on (au_id, au_lname, au_fname).
+Procedure
+1.	With showplan still activated, execute the following query and record your results in the following chart.
+
+select au_id, au_lname, au_fname
+from authors_idnames
+where au_id = "A574419386"
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  authors_idnames
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Index contains all needed columns. Base table will not be read.
+       |   |  Keys are:
+       |   |    au_id ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+au_id       au_lname                                 au_fname
+ ----------- ---------------------------------------- ----------------
+ A574419386  Madison                                  E.
+
+Table: authors_idnames scan count 1, logical reads: (regular=3 apf=0 total=3),
+physical reads: (regular=2 apf=0 total=2), apf IOs used=0
+Total writes for this command: 0
+
+where Clause ColumnAccess Method (Table Scan or Index)Logical I/Osau_idCovered index3
+2.	Retrieve the same row from the table using the au_lname in the where clause instead of au_id:
+
+select au_id, au_lname, au_fname
+from authors_idnames
+where au_lname = "Madison"
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  authors_idnames
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning at index start.
+       |   |  Index contains all needed columns. Base table will not be read.
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+au_id       au_lname                                 au_fname
+ ----------- ---------------------------------------- ----------------
+ A574419386  Madison                                  E.
+
+Table: authors_idnames scan count 1, logical reads: (regular=91 apf=0 total=91),
+physical reads: (regular=8 apf=82 total=90), apf IOs used=82
+Total writes for this command: 0
+
+where Clause ColumnAccess Method (Table Scan or Index)Logical I/Osau_idCovered index3au_lnameCovered index91
+Both queries return the same row from the same table.
+Both queries are covered by the same index.
+How do you account for the difference in logical I/Os?
+Recall that the nonclustered index idx1 is on the columns 
+(au_id, au_lname, au_fname).
+The query that uses au_id in the where clause uses the leading column of the index, which allows Adaptive Server to position itself directly on the leaf page with the first qualifying entry and then “walk” down the leaf, retrieving entries until the condition is no longer satisfied. 
+	This is a matching covered query.
+When the query uses au_lname in the where clause, Adaptive Server positions itself on the first leaf page and scans the entire leaf level to pick up all qualifying entries. This is a nonmatching covered query.
+
+Task 3:  Creating and Using a Function Based Index
+1. Turn off set statistics io
+
+set statistics io off
+
+2. Run the following query and determine what showplan reports as the access method for the query
+
+select au_lname, au_fname, city, state
+from authors
+where au_lname = “Gagne”
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  authors
+       |   |  Table Scan.
+       |   |  Forward Scan.
+       |   |  Positioning at start of table.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+3. Create a non-clustered index on the au_lname column on the authors table
+
+create index idx_nc_au_lname on authors(au_lname)
+4. Run the query again.  What does showplan report as the access method?
+
+select au_lname, au_fname, city, state
+from authors
+where au_lname = “Gagne”
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  authors
+       |   |  Index : idx_nc_au_lname
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    au_lname ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+
+
+The where condition qualifies as a search argument so an index can be chosen.  In our data for the last name we know all last names are in the format Aaaaa where the first letter is capitalized and the rest of the name is in lower case.
+Let's, for the sake of argument, assume that the data does not meet this condition.  
+In order to find the author we are looking for we will have to modify the where condition to account for this change.
+5. Run the following query and note what the showplan reports as the access method chosen.
+
+select au_lname, au_fname, city, state
+from authors
+where upper(au_lname) = “GAGNE”
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  authors
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+By placing the function on the column in the where clause it no longer qualifies as a search argument and therefore get a table scan instead of the preferred index access.
+6. Try running the query another way and look at the showplan report.
+
+select au_lname, au_fname, city, state
+from authors
+where au_lname like “[Gg][Aa][Gg][Nn][Ee]”
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  authors
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+
+Again a table scan is chosen because the where clause does not qualify as a search argument.
+7. Turn showplan off and create a new function based index on the uppercase function of au_lname column of Authors:
+
+set showplan off
+
+create index idx_nc_upper_lname on authors(upper(au_lname))
+
+(5000 rows affected)
+
+8. Turn on showplan again
+
+set showplan on
+
+9. Now run the following query and note what showplan reports:
+
+select au_lname, au_fname, city, state
+from authors
+where upper(au_lname) = “GAGNE”
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  authors
+       |   |  Index : idx_nc_upper_lname
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    sybfi3_1 ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+
+Now, an index is the best access method.  The where clause is now a search argument, because the function in the where clause exactly matches an index.
+Notice the Key listed is
+   |        Keys are: 
+   |            sybfi3_1 ASC 
+This is because when a function based index is created on a table, a column is added to the table to facilitate the use of the index.  
+Should you try to query the column, the following error message will occur:
+Server Message:  Number  11738, Severity  15
+Server 'SYB_ASE_15', Line 1:
+Name 'sybfi3_1' is reserved for internal use by Adaptive Server. Please use a different name..
+10. Now, run the alternate query again and note the showplan report
+
+select au_lname, au_fname, city, state
+from authors
+where au_lname like “[Gg][Aa][Gg][Nn][Ee]”
+
+     
+     
+     QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  authors
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+au_lname        au_fname             city                 state
+--------------- -------------------- -------------------- -----
+Gagne           Norman               Colman               SD
+
+
+The function based index use does not help here.  The function used in the where clause must exactly match the function in the index in order for the index to be considered qualified.
+11. Turn off the showplan option
+
+set showplan off
+
+12. Drop both indexes we have created on the authors table
+
+drop index authors.idx_nc_au_lname
+drop index authors.idx_nc_upper_lname
+
+Task 4: Examining Local Indexes
+Description
+In this task, you will create local clustered and nonclustered indexes on a range partitioned table and verify that each partition is sorted separately.
+
+Procedure
+1.	Semantic Partitioning is a licensed option and must be configured at the Server level before it can be used.  In Window A, configure the server for semantic partitioning with the following command.
+sp_configure "enable semantic partitioning", 1
+
+ Parameter Name                 Default     Memory Used Config Value Run Value    Unit                 Type
+ ------------------------------ ----------- ----------- ------------ ------------ -------------------- ----------
+ enable semantic partitioning             0           0            1            1 switch               dynamic
+
+(1 row affected)
+Configuration option changed. ASE need not be rebooted since the option is dynamic.
+Changing the value of 'enable semantic partitioning' does not increase the amount of memory Adaptive Server uses.
+(return status = 0)
+
+2.	Continuing In Window A, execute the following query to partition mytitles_par with three range partitions on the pub_id column in pubtune_db.  If the mytitles_par table doesn’t exist, run the UNIX shell script lab4_setup.sh to create it.
+
+alter table mytitles_par partition by range(pub_id)
+( a values <= (“P200”),
+  b values <= (“P400”),
+  c values <= (“P999”))
+
+(5000 rows affected)
+
+3.	Observe the effect of creating local index on range partitioned table mytitles.
+a.	Verify the indexes on the table mytitles_par . 
+
+sp_helpindex mytitles_par
+
+Object does not have any indexes.
+(return status = 1)
+
+b.	Create a local clustered index on the pub_id column.
+
+create clustered index mytitles1_idx
+on mytitles_par(pub_id)
+local index a, b, c
+
+c.	Verify that each partition is sorted separately on mytitles_par with sp_helpindex.
+
+sp_helpindex mytitles_par
+
+Object has the following indexes
+
+
+index_name    index_keys index_description index_max_rows_per_page index_fillfactor index_reservepagegap index_created       index_local 
+------------- ---------- ----------------- ----------------------- ---------------- -------------------- ------------------- ----------- 
+mytitles1_idx  pub_id    clustered                               0                0                    0 Apr 11 2008 07:30AM Local Index 
+
+
+index_ptn_name index_ptn_seg 
+-------------- ------------- 
+a              default       
+b              default       
+c              default       
+
+d.	Similarly, create a local nonclustered index on pub_id and price columns..
+
+create nonclustered index mytitles2_idx
+on mytitles_par(pub_id, price)
+local index d, e, f
+
+e.	Verify that a local nonclustered index has been defined on pub_id and price columns. 
+
+sp_helpindex mytitles_par
+
+Object has the following indexes
+
+
+index_name    index_keys     index_description index_max_rows_per_page index_fillfactor index_reservepagegap index_created       index_local 
+------------- -------------- ----------------- ----------------------- ---------------- -------------------- ------------------- ----------- 
+mytitles1_idx  pub_id        clustered                               0                0                    0 Apr 11 2008 07:30AM Local Index 
+mytitles2_idx  pub_id, price nonclustered                            0                0                    0 Apr 11 2008 07:30AM Local Index 
+
+
+index_ptn_name index_ptn_seg 
+-------------- ------------- 
+a              default       
+b              default       
+c              default       
+d              default       
+e              default       
+f              default
+
+f.	Turn on showplan and disable execution for the next query.
+
+set showplan, noexec on
+
+g.	Execute the following query to take advantage of the partitioning and indexing on mytitles_par to see what query plan the optimizer uses.
+
+select count(pub_id), price from mytitles_par group by price
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |HASH VECTOR AGGREGATE Operator (VA = 1)
+       |   |  GROUP BY
+       |   |  Evaluate Grouped COUNT AGGREGATE.
+       |   | Using Worktable1 for internal storage.
+       |   |  Key Count: 1
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  mytitles_par
+       |   |   |  Index : mytitles2_idx
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at index start.
+       |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+
+Does it appear that the optimizer was able to make use of the indexes and the partitioning of the table?
+Yes, the query plan clearly shows that the index was used to cover the query and that the plan used a hash vector aggregate which may utilize the partitioning
+4.	Perform the lab cleanup.
+a.	In Window A, exit  your Adaptive Server client session.
+
+exit
+
+b.	Execute the batch lab4_cleanup.sh:
+
+lab4_cleanup.sh
+
+##################################################################
+Cleaning up from Function based and Local Indexes. . .
+##################################################################
+
+
+
+

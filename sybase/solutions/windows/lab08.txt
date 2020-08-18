@@ -1,0 +1,976 @@
+Module 8: Access Method Optimization
+
+Lab 8-1: Examining Access Method Optimization - Solution
+Lab Setup
+There is no setup required for this lab. However, if you need to start this lab again at any time, the tables used in this lab can be refreshed by executing the batch script renew.sh located in your $HOME/ptquery15 directory.
+Objectives
+After completing this lab, you should be able to:
+* Examine and execute various queries and then analyze showplan output 
+* Analyze diagnostic output for costing queries
+
+Description
+In this lab, you will analyze and examine queries for search arguments (SARG). You will then examine queries that use the OR strategy.
+
+
+Task Outline
+Task 1: Examining Queries for Search Arguments 
+Task 2: Analyzing SARG Selectivity 
+Task 3: Examining Queries That Use the OR Strategy 
+
+Detailed Instructions and Solutions
+Task 1: Examining Queries for Search Arguments 
+Description
+The table below lists the characteristics of the tables that you use in this section.
+All four tables use the Allpages locking scheme.
+Table NameIndex NameType of IndexIndexed ColumnstitlesNonen/an/atitles_idpridx1Clustered uniquetitle_ididx2Nonclusteredpricetitles_pridtitlidx1Clusteredpriceidx2Nonclustered uniquetitle_ididx3Nonclusteredtitletitles_titlididx1Clusteredtitleidx2Nonclusteredtitle_ididx3Nonclusteredpub_id
+       
+
+   
+  
+For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
+Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.Procedure
+
+1.	Activate Adaptive Server diagnostic commands.
+a.	Connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P -Dpubtune_db
+
+b.	Activate showplan to examine the optimizer output.
+
+set showplan on
+
+
+c.	Activate noexec to be able to view the optimizer output without actually executing queries.
+
+
+By setting both showplan and noexec on, you can view the optimizer output without actually executing the query.
+You can also set both showplan and noexec on with one command:
+set showplan, noexec on
+The sequence does not matter when you use one command, for example:
+       set noexec, showplan on
+
+set noexec on
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION ON.
+
+
+For each of the following queries:
+    1. Determine whether the query uses a SARG in the where clause.
+    2. Predict the type of query plan that the optimizer will generate 
+       (table scan or index access).
+    3. Fill in the chart following each query with the requested information.
+
+2.	Query A:
+
+select *
+from titles_idpr
+where price = $10.00
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_idpr
+       |   |  Index : idx2
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    price ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method
+(table scan or index)YesYesIndex
+
+3.	Query B
+
+select *
+from titles_idpr
+where price * $2.00 = $10.00
+	
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesNoTable scan
+
+
+
+Both queries A and B return the same results from the same table. Describe the access method used by each query and explain any differences.
+Query A uses a SARG in the where clause (price = $10.00) so the optimizer is able to use the index on the price column.
+The where clause in Query B (price * $2.00 = $10.00) is not a SARG because of the existence of an expression on the left side of the operand. Query B had to use a table scan.
+Can you modify the where clause in Query B so that it becomes a SARG? Explain.
+
+4.	Query B (revised)
+
+select *
+from titles_idpr
+where price = $10.00 / $2.00
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_idpr
+       |   |  Index : idx2
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    price ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesYesIndex
+
+
+
+Did the modification to the where clause in Query B enable it to become a SARG?
+Yes.
+5.	Query C
+
+select *
+from titles_titlid
+where substring (title, 1, 1) = "B"
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(9)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_titlid
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesNoTable scan
+
+6.	Query C (revised)
+
+select *
+from titles_titlid
+where title like "B%"
+	
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_titlid
+       |   |   |  Using Clustered Index.
+       |   |   |  Index : idx1
+       |   |   |  Forward Scan.
+       |   |   |  Positioning by key.
+       |   |   |  Keys are:
+       |   |   |    title ASC
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesYesIndex
+
+
+
+The previous two queries, C and C (revised), both return the same results from the same table. Describe the access method used by each query and explain any differences.
+The where clause in Query C:
+where substring (title, 1, 1) = "B"
+is not a SARG because of the existence of the substring function on the left side of the operand. Query C had to use a table scan.
+Query C (revised) uses a SARG in the where clause:
+where title like "B%"
+so the optimizer is able to use the clustered index on the title column.
+7.	Query C (revised using a function based index)
+a.	Turn off the ASE diagnostic commands
+
+set showplan, noexec off
+
+b. Create a function based index on the title column utilizing the substring function
+
+	create index idx4 on titles_titlid(substring (title, 1, 1))
+
+   (5000 rows affected)
+
+c.	Turn on the ASE diagnostic commands
+
+set showplan, noexec on
+
+d.	Run the query using the substring function again
+
+select *
+from titles_titlid
+where substring (title, 1, 1) = "B"
+	
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_titlid
+       |   |  Index : idx4
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    sybfi4_1 ASC
+       |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesYesIndex
+
+
+
+The previous two queries, C (original) and C (revised with function based index), both return the same results from the same table. Describe the access method used by each query and explain any differences.
+The where clause in Query C:
+where substring (title, 1, 1) = "B"
+is not a SARG because of the existence of the substring function on the left side of the operand. Query C had to use a table scan.
+Query C (revised with function based index) now uses a SARG in the where clause because there is an index that matches the function used in the where clause:
+where substring (title, 1, 1) = "B"
+so the optimizer is able to use the function based index on the title column.e.	Turn off the ASE diagnostic commands
+
+set showplan, noexec off
+
+f. Drop the function based index 
+
+	drop index titles_titlid.idx4 
+
+Non-clustered index (index id = 2) is being rebuilt.
+Non-clustered index (index id = 3) is being rebuilt.
+(5000 rows affected)
+
+g.	Turn on the ASE diagnostic commands
+
+set showplan, noexec on
+
+
+8.	Query D
+
+select *
+from titles_titlid
+where title like "%B"
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_titlid
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)YesNoTable scan
+
+
+
+Explain the access method used in Query D.
+The where clause in Query D (title like "%B") is not a SARG because of the search for trailing values on the index instead of leading values. 
+	
+If the index was either nonclustered or a DOL clustered index, would a table scan have been used? Explain.
+Note: For a DOL table clustered index or if the index had been nonclustered on (title, price), then a non-matching covered index would have been used and the data pages would not have been accessed.	
+9. Query E
+
+select *
+from titles_pridtitl
+where price > $30.00
+and title like "As%"
+	
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_pridtitl
+       |   |   |  Index : idx3
+       |   |   |  Forward Scan.
+       |   |   |  Positioning by key.
+       |   |   |  Keys are:
+       |   |   |    title ASC
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)Yes - both columnsYes - both clausesEither index is potentially usable
+10. Query F
+
+select *
+from titles_pridtitl
+where price > $30.00
+and title > "As"
+	
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_pridtitl
+       |   |  Using Clustered Index.
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    price ASC
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+Is there an index on the column in the where clause?Is the where clause in the form of a SARG?Access method 
+(table scan or index)Yes - both columnsYes - both clausesEither index is potentially usable
+
+Both queries (E and F) contain two valid SARGs. Explain the different access methods between Query E and Query F. 
+Note: You will analyze SARG selectivity in the next section.
+Both queries contain two valid SARGs.
+The optimizer now has several options:
+1. Use the clustered index on price – idx1.
+2. Use the nonclustered index on title – idx3.
+3. Perform a table scan.
+In Query E, the optimizer chose to use the index on title because that index is more selective than the index on price for the values in the where clause. 
+This means that the optimizer expects fewer rows to qualify for the where clause on title than the clause on price. Fewer rows expected translates into fewer pages to read, which means faster throughput.
+Query F is more selective for the price clause and the optimizer chose to use its index.
+Task 2: Analyzing SARG Selectivity 
+Description
+The last two queries in section 1, Query E and Query F, both had two valid search arguments (SARGs) in their respective where clauses. In each case, the optimizer was able to choose one of the two available indexes instead of performing a table scan. In this section you analyze the cost estimates performed by the optimizer to make its decision.
+
+
+Procedure
+1.	Activate show_lio_costing diagnostic output.
+a.	Turn off the Adaptive Server diagnostics commands showplan and noexec.
+
+
+You can either use the set command to turn off these diagnostic commands or simply exit your current session with Adaptive Server. Then the next time you connect, these commands will be in their default state, off.	
+
+set showplan, noexec off
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION OFF.
+
+b.	Activate trace flags 3604 and 302 by using the dbcc traceon function.
+
+dbcc traceon(3604)
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+
+c.	Activate the set option show_lio_costing diagnostic tool
+
+set option show_lio_costing on
+
+d.	Activate showplan and noexec.
+
+set showplan, noexec on
+
+2.	Execute Query E again.
+
+select *
+from titles_pridtitl
+where price > $30.00
+and title like "As%"
+
+*******************************
+Beginning selection of qualifying indexes for table 'titles_pridtitl',
+
+Estimating selectivity of index 'titles_pridtitl.idx1', indid 1
+    price > 30.00
+    Estimated selectivity for price,
+        selectivity = 0.6347425,
+    Clustered Index Data Row Filtering Predicates 
+    title >= 'As'
+    title < 'At
+    Estimated selectivity for title,
+        selectivity = 0.001263276,
+    scan selectivity 0.6347425, filter selectivity 0.0008018549
+    3173.712 rows, 412.5826 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_pridtitl.idx3', indid 3
+    title >= 'As'
+    title < 'At
+    Estimated selectivity for title,
+        selectivity = 0.001263276,
+    scan selectivity 0.001263276, filter selectivity 0.001263276
+    6.31638 rows, 1 pages
+    Data Row Cluster Ratio 0.003448276
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.02508668
+    using no index prefetch (size 2K I/O)
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx3' on table 'titles_pridtitl' = 6.31638
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 253.6074 ):
+	lio=9.31638 pio=9.316379 cpu=20.65134
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(6)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_pridtitl
+       |   |   |  Index : idx3
+       |   |   |  Forward Scan.
+       |   |   |  Positioning by key.
+       |   |   |  Keys are:
+       |   |   |    title ASC
+       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+How selective are the indexes on price and title? Is the query more selective on either column?
+The selectivity for price is 0.6347.
+The selectivity for title is 0.001263276.
+Clearly this query is more selective for the title.
+For the given query, what is the estimated cost (number of rows and pages) of using each index?
+For idx1 (price):  3174 rows, 413 pages
+For idx3 (title) :   7 rows, 1 page
+Which index would be used according to the showplan output? Does this correspond to the cost estimates?
+The showplan output indicates that the index on title would be used, as expected.
+What other cost factors does the optimizer consider?
+Other factors include cache size, prefetch (large I/O), and cluster ratios.
+3.	Execute Query F again.
+
+select *
+from titles_pridtitl
+where price > $30.00
+and title > "As"
+
+*******************************
+Beginning selection of qualifying indexes for table 'titles_pridtitl',
+
+Estimating selectivity of index 'titles_pridtitl.idx1', indid 1
+    price > 30.00
+    Estimated selectivity for price,
+        selectivity = 0.6347425,
+    Clustered Index Data Row Filtering Predicates 
+    title > 'As%'
+    Estimated selectivity for title,
+        selectivity = 0.9455718,
+    scan selectivity 0.6347425, filter selectivity 0.6001946
+    3173.712 rows, 412.5826 pages
+    Index covers query.
+    Data Row Cluster Ratio 1
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 1
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+Estimating selectivity of index 'titles_pridtitl.idx3', indid 3
+    title > 'As%'
+    Estimated selectivity for title,
+        selectivity = 0.9455718,
+    scan selectivity 0.9455718, filter selectivity 0.9455718
+    4727.859 rows, 115.3598 pages
+    Data Row Cluster Ratio 0.003448276
+    Index Page Cluster Ratio 1
+    Data Page Cluster Ratio 0.02508668
+    using index prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in index cache 'default data cache' (cacheid 0) with LRU replacement
+
+    using table prefetch (size 2K I/O)
+    Large IO selected: The number of leaf pages qualified is > MIN_PREFETCH pages
+    in data cache 'default data cache' (cacheid 0) with LRU replacement
+    Data Page LIO for 'idx3' on table 'titles_pridtitl' = 4713.676
+The Cost Summary for best global plan:
+
+FINAL PLAN ( total cost = 12084.3 ):
+	lio=413.5826 pio=413.5826 cpu=9175.659
+
+
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	1 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 1)
+       |
+       |   |SCAN Operator (VA = 0)
+       |   |  FROM TABLE
+       |   |  titles_pridtitl
+       |   |  Using Clustered Index.
+       |   |  Index : idx1
+       |   |  Forward Scan.
+       |   |  Positioning by key.
+       |   |  Keys are:
+       |   |    price ASC
+       |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+What are the selectivity values for the indexes on price and title? Are they the same as in the previous query?
+The selectivity for price is 0.6347.
+The selectivity for title is 0.9455718.
+The selectivity on price has not changed because the where clause on price has not changed. However, the selectivity for title is much higher than in the previous query. This seems reasonable because you would expect many more title names to be greater than "As" as opposed to beginning with "As".
+For this query, what is the estimated cost (number of rows and pages) of using each index?
+For idx1 (price):  3173 rows,  413 pages
+For idx3 (title) :  4728 rows, 116 pages
+Which index would be used according to the showplan output? Does this correspond to the cost estimates?
+The showplan output indicates that the index on price would be used, as expected.
+
+Task 3: Examining Queries that use the OR Strategy (Optional) 
+Description
+The chart below lists the characteristics of the tables that you use in this section.
+Table NameIndex NameType of IndexIndexed Columnstitles_idpridx1Clustered uniquetitle_ididx2Nonclusteredpricetitles_titlididx1Clusteredtitleidx2Nonclusteredtitle_ididx3Nonclusteredpub_id
+
+Procedure
+1.	Turn off the diagnostic commands.
+a.	Turn off the Adaptive Server diagnostics commands showplan and noexec.
+
+
+You can either manually turn off diagnostic commands and trace flags by using the set command and dbcc traceoff function or by simply exiting your current session with Adaptive Server. Then the next time you connect, these flags and commands will be in their default state, off.	
+
+set showplan, noexec off
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION OFF.
+
+b.	Turn off the lio costing option and the 3604 trace flag by using the appropriate commands.
+
+set option show_lio_costing off
+dbcc traceoff(3604)
+
+DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
+
+c.	Activate showplan and noexec by issuing the set command.
+
+set showplan, noexec on
+
+For each of the following queries:
+    1. Determine whether the query uses a SARG in the where clause.
+    2. Predict the type of query plan that the optimizer will generate 
+       (index access using OR strategy or table scan).
+    3. Fill in the chart following each query with the requested information.
+2.	Query A
+
+select *
+from titles_titlid
+where title_id = "T81002"
+or title = "Assigned Numbers"
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	6 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 6)
+       |
+       |   |RID JOIN Operator (VA = 5)
+       |   | Using Worktable2 for internal storage.
+       |   |
+       |   |   |HASH UNION Operator has 2 children.
+       |   |   | Using Worktable1 for internal storage.
+       |   |   |  Key Count: 1
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_titlid
+       |   |   |   |  Index : idx2
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |   |  Keys are:
+       |   |   |   |    title_id ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 1)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_titlid
+       |   |   |   |  Using Clustered Index.
+       |   |   |   |  Index : idx1
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Keys are:
+       |   |   |   |    title ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+       |   |
+       |   |   |RESTRICT Operator (VA = 4)(0)(0)(0)(7)(0)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 3)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_titlid
+       |   |   |   |  Using Dynamic Index.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by Row IDentifier (RID).
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Are both OR clauses in the form of a SARG?Access method 
+(OR strategy or table scan)Indexes usedYes
+OR strategy
+idx2 - title_id
+idx1 - title
+Dynamic index on worktable
+
+3.	Query B
+
+select title
+from titles_titlid
+where title_id = "T81002"
+or title_id = "T69002"
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	4 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 4)
+       |
+       |   |NESTED LOOP JOIN Operator (VA = 3) (Join Type: Inner Join)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM OR List
+       |   |   |  OR List has up to 2 rows of OR/IN values.
+       |   |
+       |   |   |RESTRICT Operator (VA = 2)(0)(0)(0)(7)(0)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 1)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_titlid
+       |   |   |   |  Index : idx2
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Keys are:
+       |   |   |   |    title_id ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+
+
+
+Are both OR clauses in the form of a SARG?Access method 
+(OR strategy or table scan)Indexes usedYes
+OR strategy
+idx2 - title_id
+(used twice)
+
+
+
+
+
+
+Explain the difference between the showplan output for queries A and B.
+Both queries use the OR strategy because both clauses use a SARG. Query B uses the OR strategy “Using 2 Matching Index Scans.” Because both columns of the or clause are the same (title_id), the optimizer is able to use the same index twice. There is no chance of duplicate row IDs (RIDs) being found, so there is no need to create a worktable and use a dynamic index.	
+
+4.	Query C
+
+select title
+from titles_titlid
+where title_id in ("T81002", "T69002")
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	4 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 4)
+       |
+       |   |NESTED LOOP JOIN Operator (VA = 3) (Join Type: Inner Join)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM OR List
+       |   |   |  OR List has up to 2 rows of OR/IN values.
+       |   |
+       |   |   |RESTRICT Operator (VA = 2)(0)(0)(0)(7)(0)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 1)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_titlid
+       |   |   |   |  Index : idx2
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Keys are:
+       |   |   |   |    title_id ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Are both OR clauses in the form of a SARG?Access method 
+(OR strategy or table scan)Indexes usedYes
+OR strategy
+idx2 - title_id
+(used twice)
+
+
+
+
+Explain the difference between the showplan output for queries B and C.
+Both queries B and C use the OR strategy “Using 2 Matching Index Scans.” There is no execution difference between the two queries because an in clause is evaluated internally as a series of or clauses; the two queries are functionally identical. You select a style according to your preference. Usually an in clause is easier to read and comprehend.	
+
+5.	Query D
+
+select title
+from titles_idpr
+where title_id = "T81002"
+or price = $9.95
+
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	6 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 6)
+       |
+       |   |RID JOIN Operator (VA = 5)
+       |   | Using Worktable2 for internal storage.
+       |   |
+       |   |   |HASH UNION Operator has 2 children.
+       |   |   | Using Worktable1 for internal storage.
+       |   |   |  Key Count: 1
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 0)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Using Clustered Index.
+       |   |   |   |  Index : idx1
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Keys are:
+       |   |   |   |    title_id ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 1)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Index : idx2
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by key.
+       |   |   |   |  Index contains all needed columns. Base table will not be read.
+       |   |   |   |  Keys are:
+       |   |   |   |    price ASC
+       |   |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
+       |   |
+       |   |   |RESTRICT Operator (VA = 4)(0)(0)(0)(7)(0)
+       |   |   |
+       |   |   |   |SCAN Operator (VA = 3)
+       |   |   |   |  FROM TABLE
+       |   |   |   |  titles_idpr
+       |   |   |   |  Using Dynamic Index.
+       |   |   |   |  Forward Scan.
+       |   |   |   |  Positioning by Row IDentifier (RID).
+       |   |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Are both OR clauses in the form of a SARG?Access method 
+(OR strategy or table scan)Indexes usedYes
+OR strategy
+idx1 - title_id
+idx2 - price
+Dynamic index on worktable
+
+6.	Query E
+
+select title
+from titles_idpr
+where title_id = "T81002"
+or price > $9.95
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	2 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 2)
+       |
+       |   |RESTRICT Operator (VA = 1)(0)(0)(0)(7)(0)
+       |   |
+       |   |   |SCAN Operator (VA = 0)
+       |   |   |  FROM TABLE
+       |   |   |  titles_idpr
+       |   |   |  Table Scan.
+       |   |   |  Forward Scan.
+       |   |   |  Positioning at start of table.
+       |   |   |  Using I/O Size 2 Kbytes for data pages.
+       |   |   |  With LRU Buffer Replacement Strategy for data pages.
+
+Are both OR clauses in the form of a SARG?Access method 
+(OR strategy or table scan)Indexes usedYes
+Table scan
+None
+
+
+
+Explain the difference between the showplan output for queries D and E.
+Query D used the OR strategy because both or clauses are SARGs and the optimizer evaluated the supporting indexes as being selective enough. This means that the optimizer anticipated a relatively few number of rows to be returned by each index.
+Query E used a table scan because the optimizer made the evaluation that one of the indexes was not selective enough; it estimated a large number of rows to be returned “where price > $9.95”. Therefore, the optimizer decided not to use the OR strategy because the table scan would be more efficient.	
+7.	Turn off the Adaptive Server diagnostics commands showplan and noexec.
+
+
+You can also turn off these diagnostic commands by simply exiting your current session with Adaptive Server. Then the next time you connect, these commands will be in their default state, off.	
+
+set showplan, noexec off
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+    STEP 1
+        The type of query is SET OPTION OFF.
+
+
+
+
+

@@ -1,0 +1,217 @@
+Module 7: Query Optimization: An Overview
+
+Lab 7-1: Controlling the Optimizer - Solution
+Lab Setup
+There is no setup script required for this lab. You may start the lab at any time.
+
+Objectives
+After completing this lab, you should be able to:
+* Utilize optimization timeout settings to control the amount of time allowed to optimize a query
+
+Description
+In this lab you will learn how to control the optimizer by using the Optimization Timeout session level settings.
+
+
+Procedure
+1. Activate Adaptive Server diagnostic commands.
+a. In Window A, connect to Adaptive Server as sa using the NULL password and access the pubtune_db database.
+
+isql -Usa -P –Dpubtune_db
+
+b. Set the optimization goal to be the allrows_dss goal
+
+set plan optgoal allrows_dss
+
+c. Set the optimization timeout limit to be 1000, the maximum for an ad-hoc query
+
+set plan opttimeoutlimit 1000
+
+d. Activate showplan and noexec to examine optimizer output without actually executing a query.
+
+
+You can set both showplan and noexec on with one command:
+set showplan, noexec on
+The sequence does not matter when you use one command. For example:
+set noexec, showplan on
+produces the same net effect.
+set showplan, noexec on
+
+e. Execute the following query
+
+select t.title, p.pub_id, a.au_lname, a.au_fname, ta.royaltyper, sum(sd.qty), s.stor_id, r.royalty, sh.status
+from titles t, publishers p, authors a, titleauthor ta, salesdetail sd, stores s, roysched r, shipments sh
+where t.title_id = ta.title_id
+and t.pub_id = p.pub_id
+and ta.au_id = a.au_id
+and ta.title_id = sd.title_id
+and sd.stor_id = s.stor_id
+and r.title_id = t.title_id
+and sh.stor_id = s.stor_id
+
+f. Note the first few lines of the plan
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	38 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 38)
+       |
+       |   |SEQUENCER Operator (VA = 37) has 2 children.
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 15)
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+
+…output deleted…
+2. Activate Adaptive Server diagnostic commands.
+
+a. Set the optimization timeout limit back to the default of 10.
+
+set showplan, noexec off
+
+set plan opttimeoutlimit 10
+
+b. Activate showplan and noexec to examine optimizer output without actually executing a query.
+
+set showplan, noexec on
+
+c. Execute the query from step 1e a second time
+
+select t.title, p.pub_id, a.au_lname, a.au_fname, ta.royaltyper, sum(sd.qty), s.stor_id, r.royalty, sh.status
+from titles t, publishers p, authors a, titleauthor ta, salesdetail sd, stores s, roysched r, shipments sh
+where t.title_id = ta.title_id
+and t.pub_id = p.pub_id
+and ta.au_id = a.au_id
+and ta.title_id = sd.title_id
+and sd.stor_id = s.stor_id
+and r.title_id = t.title_id
+and sh.stor_id = s.stor_id
+
+d. Note the first few lines of the plan
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	38 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 38)
+       |
+       |   |SEQUENCER Operator (VA = 37) has 2 children.
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 15)
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+
+…output deleted…
+
+
+
+Did the optimizer come up with a different plan when given 100 times as long to find the best plan?
+No
+Explain:
+Though it was able to exhaust all possible strategies, the best plan was found using the default amount of time.  Increasing the optimization timeout limit had no effect here.
+
+
+3. Execute the following queries A, B, C, and D, examine the showplan output and identify the join method operators in the questions that follow each query.  
+
+a. Turn off showplan and noexec and set the optimization timeout limit to 1
+
+set showplan, noexec off
+
+set plan opttimeoutlimit 1
+
+b. Activate showplan and noexec to examine the optimizer.
+
+set showplan, noexec on
+
+c. Execute the query from step 1e a third time
+
+select t.title, p.pub_id, a.au_lname, a.au_fname, ta.royaltyper, sum(sd.qty), s.stor_id, r.royalty, sh.status
+from titles t, publishers p, authors a, titleauthor ta, salesdetail sd, stores s, roysched r, shipments sh
+where t.title_id = ta.title_id
+and t.pub_id = p.pub_id
+and ta.au_id = a.au_id
+and ta.title_id = sd.title_id
+and sd.stor_id = s.stor_id
+and r.title_id = t.title_id
+and sh.stor_id = s.stor_id
+
+d. Note the first few lines of the plan
+
+QUERY PLAN FOR STATEMENT 1 (at line 1).
+
+
+    STEP 1
+        The type of query is SELECT.
+
+	40 operator(s) under root
+
+       |ROOT:EMIT Operator (VA = 40)
+       |
+       |   |SEQUENCER Operator (VA = 39) has 2 children.
+       |   |
+       |   |   |SCALAR AGGREGATE Operator (VA = 15)
+       |   |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
+       |   |   |
+
+…output deleted…
+
+
+
+Did the optimizer come up with a different plan when given 1/10 the time to find the best plan?
+Explain:
+
+
+e. Turn off showplan and noexec
+
+set showplan, noexec off
+
+f. Turn on the optimizer diagnostic commands to see what happens when the optimizer times out
+
+dbcc traceon(3604)
+set option show_search_engine brief
+
+g. Turn on showplan and noexec
+
+set showplan, noexec on
+
+h. Execute the query from step 1e a final time
+
+select t.title, p.pub_id, a.au_lname, a.au_fname, ta.royaltyper, sum(sd.qty), s.stor_id, r.royalty, sh.status
+from titles t, publishers p, authors a, titleauthor ta, salesdetail sd, stores s, roysched r, shipments sh
+where t.title_id = ta.title_id
+and t.pub_id = p.pub_id
+and ta.au_id = a.au_id
+and ta.title_id = sd.title_id
+and sd.stor_id = s.stor_id
+and r.title_id = t.title_id
+and sh.stor_id = s.stor_id
+
+i. Navigate down through the set option show_search_engine output until you see the following
+
+…output deleted…
+
+	!! Optimizer has timed out in this Opt block !!
+	
+	Raise optimization timeout limit to avoid timeout
+
+
+…output deleted…
+
+
+
+Was the optimizer allowed to analyze all possible plans?
+No.  The timeout limit forced the optimizer to output the best plan found when the limit was reached.
+
+
+4. Logout of the session.
+
+
+

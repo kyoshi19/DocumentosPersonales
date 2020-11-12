@@ -1,1049 +1,0 @@
-Module 13: Stored Procedure Optimization
-
-Lab 13-1: Stored Procedure Optimization - Solution
-Objectives
-After completing this lab, you should be able to:
-* Investigate the conditions under which it may be beneficial to execute a stored procedure using with recompile 
-* Develop a branching stored procedure strategy to execute stored procedures more efficiently. 
-* Analyze the impact of creating tables within stored procedure logic.
-
-Description
-In this lab, you will analyze the impact of executing stored procedures with different input values, split query plans based on input. You will also learn runtime adjustments and stored procedure query plans.
-
-Task Outline 
-Task 1:  Analyzing the Impact of Executing Stored Procedures with Different Input Values
-Task 2:  Splitting Query Plans Based on Input
-Task 3:  Comparing Optimizer Statistics
-
-Detailed Instructions and Solutions
-Task 1: Analyze the Impact of Executing Stored Procedures with Different Input Values 
-Description
-
-       
-
-   
-  
-For all labs, you should open two windows (“A” and “B”). Unless instructed otherwise, perform all lab exercises in Window A. 
-Make sure that you have exited ALL open sessions with Adaptive Server and that the operating system prompt appears in both windows. This ensures that your results will be consistent with the solutions for this lab.
-
-If the query plan of a stored procedure sits idle in procedure cache, other users will use the same query plan when they execute the stored procedure. This is the benefit of caching the query plan. Some exceptions to this situation are when:
-    1. The stored procedure is created with recompile.
-    2. Another user executes the stored procedure with recompile.
-    3. sp_recompile has been executed against any table that the stored procedure accesses.
-    4. An index used when the original query plan was created no longer exists.
-    5. The query plan ages out of procedure cache before the next execution.
-If any of these conditions exist, the optimizer will automatically generate a new query plan for the next user.
-
-The following chart lists the characteristics of the table that you use in this lab
-Table NameLocking SchemeIndex NameType of IndexIndexed Columnstitles_idprAllpagesidx1Clustered uniquetitle_ididx2Nonclusteredprice
-Procedure
-
-1.	Activate Adaptive Server diagnostic commands.
-a.	Connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
-
-isql -Usa -P -Dpubtune_db
-
-b.	Activate statistics io to capture logical and physical I/O activity by issuing the set command.
-
-set statistics io on
-
-
-Total writes for this command: 0
-
-c.	Activate showplan to examine the optimizer output by issuing the set command.
-
-set showplan on
-
-
-Total writes for this command: 0
-
-Query A
-2.	Execute the following query and fill in the following chart.
-
-select sum(total_sales)
-from titles_idpr
-where price > $1.95
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Table Scan.
-       |   |   |  Forward Scan.
-       |   |   |  Positioning at start of table.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-134140924   
-
-
-Table: titles_idpr scan count 1, logical reads: (regular=621 apf=0 total=621), physical reads: (regular=8 apf=613 total=621), apf IOs used=613
-Total writes for this command: 0
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsAwhere price > $1.95Table scan621	
-
-Query B
-3.	Execute the following query and fill in the following chart.
-
-select sum(total_sales)
-from titles_idpr
-where price > $75.95
-
-            
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Index : idx2
-       |   |   |  Forward Scan.
-       |   |   |  Positioning by key.
-       |   |   |  Keys are:
-       |   |   |    price ASC
-       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
-       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-5252551     
-
-
-Table: titles_idpr scan count 1, logical reads: (regular=185 apf=0 total=185), physical reads: (regular=3 apf=0 total=3), apf IOs used=0
-Total writes for this command: 0
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsAwhere price > $1.95Table scan621Bwhere price > $75.95Index - idx2185	
-
-
-Describe the different query plans chosen by the optimizer for these two queries.
-The optimizer generates the best query plan for each ad-hoc query. Query B is more selective than Query A and the optimizer chooses to use the supporting index. Query A uses a table scan.
-Are the logical read counts different based on the chosen access method?
-Yes. For Query A, the table scan requires 621 logical reads. Query B needs only 185 logical reads when using the index.	
-4.	Create a stored procedure that performs the same T-SQL commands used in queries A and B above.
-
-
-Use Window B because Window A currently has showplan and statistics io activated.
-a.	In Window B, connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
-
-isql -Usa -P -Dpubtune_db
-
-b.	Create a stored procedure named sum_sales that performs the same T-SQL commands used in queries A and B above.
-
-
-n	Do not hardcode the price value in the where clause. Instead, use an input parameter to pass the price value to the stored procedure.
-n	Create the stored procedure using the following T-SQL commands.
-n	Alternatively, you can create the procedure by using the T-SQL script sum_sales.sql, which resides in your $HOME/ptquery15 directory.	
-
-
-create proc sum_sales(@book_price  money)
-as
-select sum(total_sales) from titles_idpr
-where price > @book_price
-
-
-OR
-
-isql -Usa -P -i sum_sales.sql
-
-creating sum_sales stored procedure . . .
-
-Query C
-5.	Return to Window A, where showplan and statistics io are activated, and execute the stored procedure sum_sales, passing $1.95 as the input parameter.
-
-exec sum_sales $1.95
-
-
-           
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Table Scan.
-       |   |   |  Forward Scan.
-       |   |   |  Positioning at start of table.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-134140924   
-
-Table: titles_idpr scan count 1, logical reads: (regular=621 apf=0 total=621), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-Total writes for this command: 0
-
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C – sum_saleswhere price > $1.95Table scan621
-Query D
-6.	Execute the stored procedure sum_sales again, this time passing $75.95 as the input parameter and fill in the following chart.
-
-exec sum_sales $75.95
-go
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Table Scan.
-       |   |   |  Forward Scan.
-       |   |   |  Positioning at start of table.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-5252551     
-
-Table: titles_idpr scan count 1, logical reads: (regular=621 apf=0 total=621), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-Total writes for this command: 0
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C - sum_saleswhere price > $1.95Table scan621D - sum_saleswhere price > $75.95Table scan621	
-
-
-
-Explain the difference in access methods between consecutive executions of the ad-hoc query and the stored procedure.
-Each ad-hoc request generates its own query plan appropriate for the query. 
-The query plan generated by the first execution of the stored procedure was used by the second execution. The second execution of the stored procedure would have benefited from using the index, but instead used the cached query plan that performed a table scan.
-Compare the number of logical reads for queries B and D. Both queries used the same where clause.
-Query B was compiled to use the index and needed 185 logical reads. Query D used a cached copy of the stored procedure plan that had been previously compiled for a table scan and needed 621 logical reads.	
-
-
-Query E
-7.	Execute the stored procedure sum_sales again, using the with recompile option, passing $75.95 as the input parameter and fill in the following chart.
-
-exec sum_sales $75.95 with recompile
-
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Index : idx2
-       |   |   |  Forward Scan.
-       |   |   |  Positioning by key.
-       |   |   |  Keys are:
-       |   |   |    price ASC
-       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
-       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-5252551     
-
-Table: titles_idpr scan count 1, logical reads: (regular=185 apf=0 total=185), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-Total writes for this command: 0
-
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C - sum_saleswhere price > $1.95Table scan621D - sum_saleswhere price > $75.95Table scan621E - sum_sales . . . with recompilewhere price > $75.95Index - idx2185	
-Query F
-8.	Execute the stored procedure sum_sales again, passing $1.95 as the input parameter and fill in the following chart.
-
-
-Do not use the with recompile option this time!
-
-exec sum_sales $1.95
-go
-
-            
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Index : idx2
-       |   |   |  Forward Scan.
-       |   |   |  Positioning by key.
-       |   |   |  Keys are:
-       |   |   |    price ASC
-       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
-       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-134140924   
-
-Table: titles_idpr scan count 1, logical reads: (regular=4757 apf=0 total=4757), physical reads: (regular=8 apf=40 total=48), apf IOs used=40
-Total writes for this command: 0
-Total writes for this command: 0
-
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95index - idx2185C - sum_sales where price > $1.95Table scan621D - sum_sales where price > $75.95Table scan621E - sum_sales . . . with recompile where price > $75.95Index - idx2185F - sum_saleswhere price > $1.95Index - idx24757 !!!!	
-
-
-Explain the difference in access methods for the last two executions (E and F) of the stored procedure. How were the number of logical reads affected?
-Query E executed the stored procedure using the “with recompile” option so the existing table scan query plan used by queries C and D was ignored and a new query plan was generated and optimized to use the index. 
-Query F did not execute the stored procedure using the “with recompile” option so the optimizer looked to see whether there was an idle query plan in procedure cache. There are actually two query plans in cache: the table scan from queries C and D and the more recent index access plan from Query E. Query plans age through procedure cache in a MRU / LRU fashion similar to data pages in data cache. The optimizer will always pick the Most Recently Used idle plan. Note the logical read count for Query F is 4757—many times worse than a table scan! Each row on the data pages was accessed from its respective entry on the leaf level of the index.
-As an alternative design approach, suppose the stored procedure had been created using the with recompile option. Explain the advantages and disadvantages of this alternative approach.
-The advantage of this approach is that every time the stored procedure is executed, a new query plan is generated that is optimized for that execution. The disadvantage is that users lose the potential caching benefit of using an existing query plan to bypass the optimization phase. The other disadvantage is that procedure cache may become flooded with multiple query plans for the same stored procedure. This may cause unnecessary aging out of other stored procedure plans.
-Task 2: Splitting Query Plans Based on Input 
-Description
-
-
-Another alternative to creating stored procedures using the
-“with recompile” option is to split the query plan by input. This method involves creating a top-level stored procedure that analyzes the input argument(s) and decides which call to make to one of several other stored procedures. The art in setting up the top-level procedure is having a thorough understanding of your data and the behavior of the indexes. If the data is static, then benchmark different types of queries to see where the “break” points are. The setup is more challenging if the data is dynamic.Procedure
-
-1.	Create new stored procedures as an alternative to sum_sales to split the query plans based on input.
-
-
-Use Window B because Window A currently has showplan and statistics io activated.
-Create three stored procedures using the following T-SQL commands.
-* 	Alternatively, you can create all three procedures by using the T-SQL script sum_sales_split.sql, which resides in your $HOME/ptquery15 directory. This script creates all three procedures for steps 1a, 1b, and 1c of this section:
-
-       isql -Usa -P -i sum_sales_split.sql
-creating sum_sales split stored procedures . .
- 
-a.	In Window B, create a new procedure named sum_sales_tablescan that gets called when the access method is likely to be a table scan.
-
-create proc sum_sales_tablescan (@low_price money)
-as
-select sum(total_sales) 
-from titles_idpr 
-where price > @low_price
-
-
-b.	Create a new procedure named sum_sales_index that gets called when the access method is likely to use the index.
-
-create proc sum_sales_index (@high_price money)
-as
-select sum(total_sales)
-from titles_idpr 
-where price > @high_price
-
-
-
-Note that the two new stored procedures have the identical code.
-c.	Create a new procedure named sum_sales_top that will be used as the top-level (entry) stored procedure.
-
-create proc sum_sales_top (@book_price money)
-as
-if @book_price < $59.00
-exec sum_sales_tablescan @book_price
-else
-exec sum_sales_index @book_price
-
-
-Query G
-2.	Return to Window A, where showplan and statistics io are activated, and execute the new stored procedure sum_sales_top, passing $1.95 as the argument and fill in the following chart.
-
-exec sum_sales_top $1.95
-
-
-            
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is COND.
-
-	1 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 1)
-       |
-       |   |SCALAR Operator (VA = 0) 
-
-
-
-QUERY PLAN FOR STATEMENT 3 (at line 4).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 4 (at line 6).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 5 (at line 0).
-
-
-    STEP 1
-        The type of query is GOTO.
-
-Total writes for this command: 0
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Table Scan.
-       |   |   |  Forward Scan.
-       |   |   |  Positioning at start of table.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-134140924   
-
-Table: titles_idpr scan count 1, logical reads: (regular=621 apf=0 total=621), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-
-
-
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C - sum_sales where price > $1.95Table scan621D - sum_sales where price > $75.95Table scan621E - sum_sales . . . 
-     with recompile where price > $75.95Index - idx2185F - sum_saleswhere price > $1.95Index - idx24757 !!!!G - sum_sales_top where price > $1.95Table scan621	
-
-Query H
-3.	Execute the new stored procedure sum_sales_top again, this time passing $75.95 as the argument and fill in the following chart.
-
-exec sum_sales_top $75.95
-
-
-            
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is COND.
-
-	1 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 1)
-       |
-       |   |SCALAR Operator (VA = 0) 
-
-
-
-QUERY PLAN FOR STATEMENT 3 (at line 4).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 4 (at line 6).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 5 (at line 0).
-
-
-    STEP 1
-        The type of query is GOTO.
-
-Total writes for this command: 0
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Index : idx2
-       |   |   |  Forward Scan.
-       |   |   |  Positioning by key.
-       |   |   |  Keys are:
-       |   |   |    price ASC
-       |   |   |  Using I/O Size 2 Kbytes for index leaf pages.
-       |   |   |  With LRU Buffer Replacement Strategy for index leaf pages.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-5252551     
-
-Table: titles_idpr scan count 1, logical reads: (regular=185 apf=0 total=185), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C - sum_sales where price > $1.95Table scan621D - sum_sales where price > $75.95Table scan621E - sum_sales . . . 
-     with recompile where price > $75.95Index - idx2185F - sum_saleswhere price > $1.95Index - idx24757 !!!!G - sum_sales_top where price > $1.95Table scan621H - sum_sales_top where price > $75.95Index - idx2185	
-
-
-Did the top-level procedure, sum_sales_top, branch appropriately for queries G and H?
-Yes. Query G branched as expected to the table scan procedure while Query H chose the index procedure.
-
-Query I
-4.	Execute the new stored procedure sum_sales_top again, this time passing $49.95 as the argument and fill in the following chart.
-
-
-At this point, the procedure cache is warmed up with all three procedures associated with the split query plan residing in the cache.	
-
-exec sum_sales_top $49.95
-go
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is COND.
-
-	1 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 1)
-       |
-       |   |SCALAR Operator (VA = 0) 
-
-
-
-QUERY PLAN FOR STATEMENT 3 (at line 4).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 4 (at line 6).
-
-
-    STEP 1
-        The type of query is EXECUTE.
-
-
-QUERY PLAN FOR STATEMENT 5 (at line 0).
-
-
-    STEP 1
-        The type of query is GOTO.
-
-Total writes for this command: 0
-
-QUERY PLAN FOR STATEMENT 1 (at line 0).
-
-
-    STEP 1
-        The type of query is DECLARE.
-
-
-QUERY PLAN FOR STATEMENT 2 (at line 3).
-
-
-    STEP 1
-        The type of query is SELECT.
-
-	2 operator(s) under root
-
-       |ROOT:EMIT Operator (VA = 2)
-       |
-       |   |SCALAR AGGREGATE Operator (VA = 1)
-       |   |  Evaluate Ungrouped SUM OR AVERAGE AGGREGATE.
-       |   |
-       |   |   |SCAN Operator (VA = 0)
-       |   |   |  FROM TABLE
-       |   |   |  titles_idpr
-       |   |   |  Table Scan.
-       |   |   |  Forward Scan.
-       |   |   |  Positioning at start of table.
-       |   |   |  Using I/O Size 2 Kbytes for data pages.
-       |   |   |  With LRU Buffer Replacement Strategy for data pages.
-
------------ 
-51484667    
-
-Table: titles_idpr scan count 1, logical reads: (regular=621 apf=0 total=621), physical reads: (regular=0 apf=0 total=0), apf IOs used=0
-Total writes for this command: 0
-
-
-QuerySARGAccess Method 
-(Table Scan or Index)Logical ReadsA - select . . .where price > $1.95Table scan621B - select . . .where price > $75.95Index - idx2185C - sum_sales where price > $1.95Table scan621D - sum_sales where price > $75.95Table scan621E - sum_sales . . . 
-     with recompile where price > $75.95Index - idx2185F - sum_saleswhere price > $1.95Index - idx24757 !!!!G - sum_sales_top where price > $1.95Table scan621H - sum_sales_top where price > $75.95Index - idx2185I - sum_sales_top where price > $49.95Table scan621	
-
-
-
-Given that the optimal query plan for Query I should be a table scan, is the split query plan strategy functioning successfully?
-In other words, is Adaptive Server branching to the different query plans based on an MRU/LRU basis or according to the branching algorithm programmed into the stored procedures? Explain.
-Yes. The sum_sales_top stored procedure continues to branch to the appropriate stored procedure based on input. For queries G, H, and I, the sequence of plans was table scan, index, and table scan, respectively. For Query I, no further compilation was required because all three stored procedures had already been compiled and they are reused according to the branching logic coded into them.	
-
-5.	Turn off the Adaptive Server diagnostics commands showplan and statistics io.
-
-
-You can also turn off these diagnostic commands by simply exiting your current session with Adaptive Server. Then the next time you connect, these commands will be in their default state, off.	
-
-set showplan off
-
-
-QUERY PLAN FOR STATEMENT 1 (at line 1).
-
-    STEP 1
-        The type of query is SET OPTION OFF.
-
-Total writes for this command: 0
-
-set statistics io off
-
-Task 3: Comparing Optimizer Statistics
-Description
-
-The purpose of this lab is to demonstrate the behavior of the optimizer when a table is created as part of stored procedure logic.  This will result with the optimizer using default statistics that may not be accurate and representative of the actual data distribution and index information of the table. This can be mitigated by creating the table outside of the stored procedure code.
-Procedure
-
-1.	Verify default optimizer behavior and generated statistics when a table is created as part of the stored procedure logic.
-
-
-Create the proc_huge_2 stored procedure using the following T-SQL commands.
-* 	Alternatively, you can also create this stored procedure by using the T-SQL script proc_huge_2.sql, which resides in your $HOME/ptquery15 directory. This script will satisfy all steps for procedure 1 of this section.  In summary, the script will:
-1. Check if the proc_huge_2 stored procedure exists.  If it does, it will drop the stored procedure.
-2. Check if the huge_tab_2 table exists.  If it does, it will drop the table.
-3. Create the proc_huge_2 stored procedure.  The procedure code includes the creation of the huge_tab_2 table.
-4. Enable optimizer tracing.
-5. Execute the stored procedure to generate the trace information.
-6. Disable optimizer tracing
-
-       $ isql -Usa -P -i proc_huge_2.sql 
-–o proc_huge_2.out
-$ vi proc_huge_2.out
- 
-a.	If not already connected, connect to Adaptive Server as the sa using the NULL password and access the pubtune_db database.
-
-isql -Usa -P -Dpubtune_db
-
-b.	Make sure that the huge_proc_2 procedure does not exist in the database.  This will ensure that the stored procedure query plan also does not exist and will not influence the optimizer tracing output.
-
-if exists (select 1 from sysobjects 
-						 where name = 'proc_huge_2' and type = 'P')
-begin
-	drop procedure proc_huge_2
-end
-c.	Run the following command to ensure that the huge_tab_2 table does not exist.
-
-if exists (select 1 from sysobjects 
-						 where name = 'huge_tab_2' and type = 'U')
-begin
-	drop table huge_tab_2
-end
-
-d. Create the stored procedure proc_huge_2 using the following code.
-
-create proc proc_huge_2 as
-
--- Create the huge_tab_2 table and 
--- populate it with data from titles_titlid
-
-select  titles_titlid.title_id, 
-	titles_titlid.title, 
-	titles_titlid.type, 
-	titles_titlid.pub_id, 
-	titles_titlid.price, 
-	titles_titlid.advance, 
-	titles_titlid.total_sales, 
-	titles_titlid.notes, 
-	titles_titlid.pubdate, 
-	titles_titlid.contract 
-into huge_tab_2 
-from titles_titlid
-
-select distinct(type) from huge_tab_2 t, titleauthor_ididtid ta, authors_id a
-where t.title_id = ta.title_id
-and ta.au_id = a.au_id
-and state = "CA"
-
-e. Enable optimizer tracing using traceflag 3604 and ‘set option show’ command.
-
-dbcc traceon(3604)
-set option show_lio_costing on
-
-DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
-f. Execute the stored procedure proc_huge_2 to generate the trace output.
-
-exec proc_huge_2
-
-Beginning selection of qualifying indexes for table 'titles_titlid',
-.
-... Output deleted
-.
-Estimating selectivity for table 'huge_tab_2'
-    Table scan cost is 100 rows, 10 pages,
-
-The table (Allpages) has 100 rows, 10 pages,
-Data Page Cluster Ratio 0.0000000
-    Search argument selectivity is 1.
-    using table prefetch (size 2K I/O)
-.
-... Output deleted
-.
-type
- ------------
- UNDECIDED
- adventure
- business
- computer
- cooking
- news
- psychology
- romance
- travel
-
-(9 rows affected)
-(return status = 0)
-
-
-What are the default values that the optimizer assume when generating statistics during stored procedure compilation, where tables are created as part of the stored procedure logic?
-It assumes that the underlying table has 100 rows and 10 pages.  This is an inaccurate statistics that could lead to generation of suboptimal stored procedure query plan.
-g. Disable optimizer tracing
-
-dbcc traceoff(3604)
-set option show_lio_costing off
-
-DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
-
-
-2. Compare the generated query plan of a stored procedure when referenced table is created outside of the procedure code.
-
-
-
-
-Recreate proc_huge_2 stored procedure using the following T-SQL commands.
-* 	Alternatively, you can also recreate this stored procedure by using the T-SQL script proc_huge_2_split.sql, which resides in your $HOME/ptquery15 directory. This script will satisfy all steps for procedure 2 of this section.  In summary, the script will:
-1. Check if the proc_huge_2 stored procedure exists.  If it does, it will drop the stored procedure.
-2. Check if the huge_tab_2 table exists.  If it does, it will drop the table.
-3. Create the huge_tab_2 table and populate it with data.
-4. Create the proc_huge_2 stored procedure.
-5. Enable optimizer tracing.
-6. Execute the stored procedure to generate the trace information.
-7. Disable optimizer tracing
-
-       $ isql -Usa -P -i proc_huge_2_split.sql 
-–o proc_huge_2_split.out
-$ vi proc_huge_2_split.out
- 
-
-
-a. Make sure that the huge_proc_2 procedure does not exist in the database.  This will ensure that the stored procedure query plan also does not exist and will not influence the optimizer tracing output.
-
-if exists (select 1 from sysobjects 
-						 where name = 'proc_huge_2' and type = 'P')
-begin
-	drop procedure proc_huge_2
-end
-
-b. Run the following command to ensure that the huge_tab_2 table does not exist.
-
-if exists (select 1 from sysobjects 
-						 where name = 'huge_tab_2' and type = 'U')
-begin
-	drop table huge_tab_2
-end
-
-c. Create the table huge_tab_2 and populate with data from titles_titlid table.
-
-select  titles_titlid.title_id, 
-	titles_titlid.title, 
-	titles_titlid.type, 
-	titles_titlid.pub_id, 
-	titles_titlid.price, 
-	titles_titlid.advance, 
-	titles_titlid.total_sales, 
-	titles_titlid.notes, 
-	titles_titlid.pubdate, 
-	titles_titlid.contract 
-into huge_tab_2 
-from titles_titlid
-
-(5000 rows affected)
-
-
-d. Create the stored procedure proc_huge_2 using the following code.
-
-create proc proc_huge_2 as
-
-select distinct(type) from huge_tab_2 t, titleauthor_ididtid ta, authors_id a
-where t.title_id = ta.title_id
-and ta.au_id = a.au_id
-and state = "CA"
-
-e. Enable optimizer tracing using traceflag 3604 and ‘set option show’ command.
-
-dbcc traceon(3604)
-set option show_lio_costing normal
-
-DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
-f. Execute the stored procedure proc_huge_2 to generate the trace output.
-
-exec proc_huge_2
-
-Estimating selectivity for table 'huge_tab_2'
-    Table scan cost is 5000 rows, 622 pages,
-
-The table (Allpages) has 5000 rows, 622 pages,
-Data Page Cluster Ratio 0.9999900
-    Search argument selectivity is 1.
-    using table prefetch (size 2K I/O)
-.
-... Output deleted
-.
-type
- ------------
- UNDECIDED
- adventure
- business
- computer
- cooking
- news
- psychology
- romance
- travel
-
-(9 rows affected)
-(return status = 0)
-
-
-
-What are the new generated statistics for the huge_tab_2 table during stored procedure compilation?
-The optimizer now uses accurate statistics regarding table rowcount (5000) and number of pages (622). This will aid in the generation of a more optimal query plan.
-
-
-Will the plan shown in the output of show_lio_costing be the final plan?  Should we be concerned about the use of default statistics?
-The plan shown may not be the final plan.  Deferred compilation will see that the actual table statistics are now known, therefore the use of default statistics is not a concern.  As an alternative, an index could be created on the table, which would indicate during exeuction that the schema of the table has changed, which would force a recompilation of the final statement of the procedure.
-
-g. Disable optimizer tracing
-
-dbcc traceoff(3604)
-set option show_lio_costing off
-
-DBCC execution completed. If DBCC printed error messages, contact a user with System Administrator (SA) role.
-
-
-
-
-
-
-
-
-
